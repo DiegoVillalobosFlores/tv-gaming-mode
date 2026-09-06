@@ -5,6 +5,11 @@ moves to the GPU's HDMI out, and the running `plasmashell` is swapped to the
 Plasma Bigscreen shell. Running it again reverses every step from the state
 captured on the way in.
 
+Two patched Plasma packages come with it, both aimed at the same thing — never
+needing to get up for a keyboard or a mouse. One lists running apps in the
+Bigscreen home overlay; the other lets a game controller type on the on-screen
+keyboard.
+
 Built for one machine (CachyOS, Plasma 6.7, NVIDIA AD102, LG TV on `HDMI-A-1`).
 The head name, PCI address and sink description at the top of `bin/tv-mode.sh`
 are hardware-specific — read them before running this anywhere else.
@@ -21,6 +26,7 @@ Agents working in this repo should start with [AGENTS.md](AGENTS.md).
 | `bin/apollo-display.sh` | Apollo/Sunshine `prep-cmd` that does the same head swap for game streaming. |
 | `desktop/tv-mode.desktop` | Launcher, with *Switch to the TV* / *Back to the desktop* actions. |
 | `plasma-bigscreen/` | A patch against Plasma Bigscreen 6.7.4, plus a PKGBUILD that builds it. |
+| `plasma-keyboard/` | A patch against Plasma's on-screen keyboard 6.7.4 adding game-controller input, plus a PKGBUILD. |
 | `install.sh` | Copies the scripts and launcher into `~/.local`. |
 | `SETUP.md` | Full setup and configuration guide. |
 | `AGENTS.md` | Invariants and unsafe commands, for coding agents. |
@@ -72,17 +78,63 @@ The old **Tasks** button stays, below the list and relabelled **All Open Apps**,
 so the grid overview with hold-to-close and *Close all apps* is still reachable.
 Nothing was removed.
 
+## The on-screen keyboard patch
+
+`plasma-keyboard` is the Qt VirtualKeyboard-based panel KWin pops up for text
+entry. Stock, it is driven by touch, a mouse, or a physical keyboard's arrow keys
+— none of which exist on the couch. Entering a password or a search term on the
+TV meant fetching a keyboard.
+
+`plasma-keyboard/0001-gamepad-navigation-for-the-on-screen-keyboard.patch` reads
+game controllers straight from `/dev/input` with libevdev and drives the panel's
+own navigation mode. Against upstream `v6.7.4`, 12 files:
+
+- **`src/gamepadlistener.{h,cpp}`** (new) — finds controllers by evdev capability
+  (`BTN_SOUTH` plus a stick or hat), so any pad the kernel understands works;
+  hotplugs off a watch on `/dev/input`; auto-repeats held directions; owns the
+  button mapping.
+- **`src/inputlisteneritem.{h,cpp}`** — feeds directions into the keyboard
+  navigation Qt VirtualKeyboard already had but only wired to arrow keys, and
+  sends backspace/space/enter to the focused app as keysyms.
+- **`src/qml/main.qml`** — hold-to-shift, re-asserted after every character.
+- **`plasmakeyboardsettings.kcfg` + the KCM** — two toggles, both on by default.
+
+The mapping copies the Steam Deck's on-screen keyboard, so it needs no learning:
+
+| Input | Keyboard shown | Keyboard hidden |
+| --- | --- | --- |
+| D-pad / left stick | Move the highlight (repeats) | — |
+| A | Type the highlighted key | — |
+| B | Close the keyboard | — |
+| X | Backspace (repeats) | **Summon the keyboard** |
+| Y | Space | — |
+| L2 | Shift, held rather than toggled | — |
+| R2 | Enter | — |
+| L1 / R1 | Unbound, as on Steam | — |
+
+Two things are deliberate and easy to "fix" wrongly:
+
+- **The controller is grabbed (`EVIOCGRAB`) while the panel is up**, so the app
+  underneath does not also act on your A presses. **Home / Guide (`BTN_MODE`) is
+  excluded** — the grab is dropped for as long as it is held, because on this
+  machine that button is what `plasma-remotecontrollers` turns into the Bigscreen
+  home overlay key. Without the exclusion the keyboard swallows it.
+- **X summons only when the focused window reports it can take text input**
+  (KWin's `activeClientSupportsTextInput`). X is a face button games use; without
+  that check the keyboard would pop up mid-game.
+
 ## Installing
 
 ```sh
 ./install.sh                          # scripts + launcher into ~/.local
 cd plasma-bigscreen && makepkg -si    # the patched Bigscreen package
+cd ../plasma-keyboard && makepkg -si  # the patched on-screen keyboard
 plasmashell --replace                 # reload, from inside the Bigscreen session
 ```
 
-The patched package installs as `6.7.4-1.9`, and **any `pacman -Syu` that updates
-`plasma-bigscreen` silently reverts it** — the file list is identical to stock, so
-nothing looks wrong. `pacman -Qi plasma-bigscreen` is the tell.
+Both patched packages install as `6.7.4-1.9`, and **any `pacman -Syu` that updates
+either silently reverts it** — the file lists are identical to stock, so nothing
+looks wrong. `pacman -Qi plasma-bigscreen plasma-keyboard` is the tell.
 
 Adapting the hardware constants to a different machine, the controller button
 mapping, the Apollo prep-cmd and troubleshooting are all in **[SETUP.md](SETUP.md)**.

@@ -1,0 +1,1324 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index db9e0da..859a273 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -65,6 +65,7 @@ ecm_setup_version(${PROJECT_VERSION} VARIABLE_PREFIX PLASMA_KEYBOARD VERSION_HEA
+ 
+ find_package(PkgConfig REQUIRED)
+ pkg_check_modules(XKBCommon REQUIRED IMPORTED_TARGET xkbcommon)
++pkg_check_modules(Libevdev REQUIRED IMPORTED_TARGET libevdev)
+ 
+ find_package(Wayland 1.2 REQUIRED COMPONENTS Client)
+ find_package(QtWaylandScanner REQUIRED ${QT_MIN_VERSION})
+diff --git a/kcm/plasmakeyboardkcm.cpp b/kcm/plasmakeyboardkcm.cpp
+index d04e451..c1653f4 100644
+--- a/kcm/plasmakeyboardkcm.cpp
++++ b/kcm/plasmakeyboardkcm.cpp
+@@ -110,6 +110,40 @@ void PlasmaKeyboardKcm::setKeyboardNavigationEnabled(bool keyboardNavigationEnab
+     setNeedsSave(true);
+ }
+ 
++bool PlasmaKeyboardKcm::gamepadNavigationEnabled() const
++{
++    return m_gamepadNavigationEnabled;
++}
++
++void PlasmaKeyboardKcm::setGamepadNavigationEnabled(bool gamepadNavigationEnabled)
++{
++    if (gamepadNavigationEnabled == m_gamepadNavigationEnabled) {
++        return;
++    }
++
++    m_gamepadNavigationEnabled = gamepadNavigationEnabled;
++    Q_EMIT gamepadNavigationEnabledChanged();
++
++    setNeedsSave(true);
++}
++
++bool PlasmaKeyboardKcm::gamepadExclusiveEnabled() const
++{
++    return m_gamepadExclusiveEnabled;
++}
++
++void PlasmaKeyboardKcm::setGamepadExclusiveEnabled(bool gamepadExclusiveEnabled)
++{
++    if (gamepadExclusiveEnabled == m_gamepadExclusiveEnabled) {
++        return;
++    }
++
++    m_gamepadExclusiveEnabled = gamepadExclusiveEnabled;
++    Q_EMIT gamepadExclusiveEnabledChanged();
++
++    setNeedsSave(true);
++}
++
+ bool PlasmaKeyboardKcm::autoCapitalizationEnabled() const
+ {
+     return m_autoCapitalizationEnabled;
+@@ -174,6 +208,8 @@ void PlasmaKeyboardKcm::load()
+     m_enabledLocales = PlasmaKeyboardSettings::self()->enabledLocales();
+     Q_EMIT enabledLocalesChanged();
+     setKeyboardNavigationEnabled(PlasmaKeyboardSettings::self()->keyboardNavigationEnabled());
++    setGamepadNavigationEnabled(PlasmaKeyboardSettings::self()->gamepadNavigationEnabled());
++    setGamepadExclusiveEnabled(PlasmaKeyboardSettings::self()->gamepadExclusiveEnabled());
+     setAutoCapitalizationEnabled(PlasmaKeyboardSettings::self()->autoCapitalizationEnabled());
+     setDiacriticsPopupEnabled(PlasmaKeyboardSettings::self()->diacriticsPopupEnabled());
+     setDiacriticsHoldThresholdMs(PlasmaKeyboardSettings::self()->diacriticsHoldThresholdMs());
+@@ -187,6 +223,8 @@ void PlasmaKeyboardKcm::save()
+     PlasmaKeyboardSettings::self()->setVibrationEnabled(m_vibrationEnabled);
+     PlasmaKeyboardSettings::self()->setEnabledLocales(m_enabledLocales);
+     PlasmaKeyboardSettings::self()->setKeyboardNavigationEnabled(m_keyboardNavigationEnabled);
++    PlasmaKeyboardSettings::self()->setGamepadNavigationEnabled(m_gamepadNavigationEnabled);
++    PlasmaKeyboardSettings::self()->setGamepadExclusiveEnabled(m_gamepadExclusiveEnabled);
+     PlasmaKeyboardSettings::self()->setAutoCapitalizationEnabled(m_autoCapitalizationEnabled);
+     PlasmaKeyboardSettings::self()->setDiacriticsPopupEnabled(m_diacriticsPopupEnabled);
+     PlasmaKeyboardSettings::self()->setDiacriticsHoldThresholdMs(m_diacriticsHoldThresholdMs);
+diff --git a/kcm/plasmakeyboardkcm.h b/kcm/plasmakeyboardkcm.h
+index 469bcd6..128ad51 100644
+--- a/kcm/plasmakeyboardkcm.h
++++ b/kcm/plasmakeyboardkcm.h
+@@ -18,6 +18,8 @@ class PlasmaKeyboardKcm : public KQuickManagedConfigModule
+     Q_PROPERTY(bool vibrationEnabled READ vibrationEnabled WRITE setVibrationEnabled NOTIFY vibrationEnabledChanged)
+     Q_PROPERTY(QStringList enabledLocales READ enabledLocales NOTIFY enabledLocalesChanged)
+     Q_PROPERTY(bool keyboardNavigationEnabled READ keyboardNavigationEnabled WRITE setKeyboardNavigationEnabled NOTIFY keyboardNavigationEnabledChanged)
++    Q_PROPERTY(bool gamepadNavigationEnabled READ gamepadNavigationEnabled WRITE setGamepadNavigationEnabled NOTIFY gamepadNavigationEnabledChanged)
++    Q_PROPERTY(bool gamepadExclusiveEnabled READ gamepadExclusiveEnabled WRITE setGamepadExclusiveEnabled NOTIFY gamepadExclusiveEnabledChanged)
+     Q_PROPERTY(bool autoCapitalizationEnabled READ autoCapitalizationEnabled WRITE setAutoCapitalizationEnabled NOTIFY autoCapitalizationEnabledChanged)
+     Q_PROPERTY(bool diacriticsPopupEnabled READ diacriticsPopupEnabled WRITE setDiacriticsPopupEnabled NOTIFY diacriticsPopupEnabledChanged)
+     Q_PROPERTY(int diacriticsHoldThresholdMs READ diacriticsHoldThresholdMs WRITE setDiacriticsHoldThresholdMs NOTIFY diacriticsHoldThresholdMsChanged)
+@@ -39,6 +41,12 @@ public:
+     bool keyboardNavigationEnabled() const;
+     void setKeyboardNavigationEnabled(bool keyboardNavigationEnabled);
+ 
++    bool gamepadNavigationEnabled() const;
++    void setGamepadNavigationEnabled(bool gamepadNavigationEnabled);
++
++    bool gamepadExclusiveEnabled() const;
++    void setGamepadExclusiveEnabled(bool gamepadExclusiveEnabled);
++
+     bool autoCapitalizationEnabled() const;
+     void setAutoCapitalizationEnabled(bool autoCapitalizationEnabled);
+ 
+@@ -59,6 +67,8 @@ Q_SIGNALS:
+     void vibrationEnabledChanged();
+     void enabledLocalesChanged();
+     void keyboardNavigationEnabledChanged();
++    void gamepadNavigationEnabledChanged();
++    void gamepadExclusiveEnabledChanged();
+     void autoCapitalizationEnabledChanged();
+     void diacriticsPopupEnabledChanged();
+     void diacriticsHoldThresholdMsChanged();
+@@ -67,6 +77,8 @@ private:
+     bool m_soundEnabled = false;
+     bool m_vibrationEnabled = true;
+     bool m_keyboardNavigationEnabled = false;
++    bool m_gamepadNavigationEnabled = true;
++    bool m_gamepadExclusiveEnabled = true;
+     bool m_autoCapitalizationEnabled = true;
+     bool m_diacriticsPopupEnabled = true;
+     int m_diacriticsHoldThresholdMs = 600;
+diff --git a/kcm/ui/main.qml b/kcm/ui/main.qml
+index 00ae6de..289b1c5 100644
+--- a/kcm/ui/main.qml
++++ b/kcm/ui/main.qml
+@@ -63,6 +63,30 @@ KCM.ScrollViewKCM {
+             }
+         }
+ 
++        QQC2.CheckBox {
++            id: gamepadNavigationEnabled
++            text: i18n("Game controller navigation")
++
++            checked: kcm.gamepadNavigationEnabled
++            onCheckedChanged: {
++                kcm.gamepadNavigationEnabled = checked;
++                checked = Qt.binding(() => kcm.gamepadNavigationEnabled);
++            }
++        }
++
++        QQC2.CheckBox {
++            id: gamepadExclusiveEnabled
++            text: i18n("Reserve the controller while the keyboard is shown")
++            enabled: kcm.gamepadNavigationEnabled
++            leftPadding: gamepadNavigationEnabled.leftPadding + Kirigami.Units.gridUnit
++
++            checked: kcm.gamepadExclusiveEnabled
++            onCheckedChanged: {
++                kcm.gamepadExclusiveEnabled = checked;
++                checked = Qt.binding(() => kcm.gamepadExclusiveEnabled);
++            }
++        }
++
+         QQC2.CheckBox {
+             id: autoCapitalizationEnabled
+             text: i18n("Auto-capitalization")
+diff --git a/kcm/ui/main_handset.qml b/kcm/ui/main_handset.qml
+index e70a32a..532724d 100644
+--- a/kcm/ui/main_handset.qml
++++ b/kcm/ui/main_handset.qml
+@@ -99,6 +99,35 @@ KCM.SimpleKCM {
+ 
+             FormCard.FormDelegateSeparator {}
+ 
++            FormCard.FormSwitchDelegate {
++                id: gamepadNavigationEnabled
++                text: i18n("Game controller navigation")
++                description: i18n("Whether to use a connected game controller to navigate the keyboard")
++
++                checked: kcm.gamepadNavigationEnabled
++                onCheckedChanged: {
++                    kcm.gamepadNavigationEnabled = checked;
++                    checked = Qt.binding(() => kcm.gamepadNavigationEnabled)
++                }
++            }
++
++            FormCard.FormDelegateSeparator {}
++
++            FormCard.FormSwitchDelegate {
++                id: gamepadExclusiveEnabled
++                text: i18n("Reserve the controller")
++                description: i18n("Hide controller input from the application below while the keyboard is shown")
++                enabled: kcm.gamepadNavigationEnabled
++
++                checked: kcm.gamepadExclusiveEnabled
++                onCheckedChanged: {
++                    kcm.gamepadExclusiveEnabled = checked;
++                    checked = Qt.binding(() => kcm.gamepadExclusiveEnabled)
++                }
++            }
++
++            FormCard.FormDelegateSeparator {}
++
+             FormCard.FormSwitchDelegate {
+                 id: autoCapitalizationEnabled
+                 text: i18n("Auto-capitalization")
+diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
+index bdf0948..c9b667e 100644
+--- a/src/CMakeLists.txt
++++ b/src/CMakeLists.txt
+@@ -25,6 +25,8 @@ target_sources(plasma-keyboard PRIVATE
+     inputpanelwindow.h
+     inputplugin.cpp
+     inputplugin.h
++    gamepadlistener.cpp
++    gamepadlistener.h
+     qwaylandinputpanelshellintegration.cpp
+     qwaylandinputpanelshellintegration_p.h
+     qwaylandinputpanelsurface.cpp
+@@ -106,6 +108,7 @@ target_link_libraries(plasma-keyboard
+     KF6::ConfigCore
+     KF6::ConfigGui
+     KF6::Crash
++    PkgConfig::Libevdev
+     PkgConfig::XKBCommon
+     Plasma::PlasmaQuick
+     Qt::DBus
+diff --git a/src/gamepadlistener.cpp b/src/gamepadlistener.cpp
+new file mode 100644
+index 0000000..c2ac93f
+--- /dev/null
++++ b/src/gamepadlistener.cpp
+@@ -0,0 +1,572 @@
++/*
++    SPDX-FileCopyrightText: 2026 Diego Villalobos <diegovillalobos397@gmail.com>
++
++    SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
++*/
++
++#include "gamepadlistener.h"
++#include "logging.h"
++
++#include <QDir>
++#include <QFileSystemWatcher>
++#include <QSocketNotifier>
++
++#include <libevdev/libevdev.h>
++
++#include <fcntl.h>
++#include <linux/input.h>
++#include <sys/ioctl.h>
++#include <unistd.h>
++
++#include <utility>
++
++namespace
++{
++// Directory holding the evdev nodes. Watched for hotplugged controllers.
++constexpr auto INPUT_DIR = "/dev/input";
++
++// udev creates the device node before it finishes applying permissions, so
++// give it a moment before trying to open anything new.
++constexpr int RESCAN_DELAY_MS = 250;
++
++// Auto-repeat timings for held directions and held backspace, matching the
++// feel of the usual X11 keyboard repeat.
++constexpr int REPEAT_DELAY_MS = 350;
++constexpr int REPEAT_INTERVAL_MS = 110;
++
++// Fractions of the axis range at which the analog stick starts and stops
++// counting as a direction.
++constexpr double STICK_ENTER = 0.55;
++constexpr double STICK_LEAVE = 0.35;
++
++// Analog triggers count as pressed above this fraction of their range.
++constexpr double TRIGGER_THRESHOLD = 0.6;
++}
++
++GamepadListener::GamepadListener(QObject *parent)
++    : QObject(parent)
++    , m_watcher(new QFileSystemWatcher(this))
++{
++    m_rescanTimer.setSingleShot(true);
++    m_rescanTimer.setInterval(RESCAN_DELAY_MS);
++    connect(&m_rescanTimer, &QTimer::timeout, this, &GamepadListener::rescan);
++
++    m_repeatTimer.setSingleShot(false);
++    connect(&m_repeatTimer, &QTimer::timeout, this, &GamepadListener::onRepeatTimeout);
++
++    connect(m_watcher, &QFileSystemWatcher::directoryChanged, this, [this] {
++        m_rescanTimer.start();
++    });
++}
++
++GamepadListener::~GamepadListener()
++{
++    closeAll();
++}
++
++bool GamepadListener::isEnabled() const
++{
++    return m_enabled;
++}
++
++void GamepadListener::setEnabled(bool enabled)
++{
++    if (enabled == m_enabled) {
++        return;
++    }
++
++    m_enabled = enabled;
++
++    if (enabled) {
++        m_watcher->addPath(QString::fromLatin1(INPUT_DIR));
++        rescan();
++    } else {
++        m_watcher->removePaths(m_watcher->directories());
++        m_rescanTimer.stop();
++        closeAll();
++    }
++}
++
++bool GamepadListener::isGrabbing() const
++{
++    return m_grabbing;
++}
++
++void GamepadListener::setGrabbing(bool grabbing)
++{
++    if (grabbing == m_grabbing) {
++        return;
++    }
++
++    m_grabbing = grabbing;
++    updateGrab();
++
++    if (!grabbing) {
++        // Whatever was held down cannot be released anymore once we stop
++        // listening exclusively, so drop the state instead of getting stuck.
++        setNavigationKey(0);
++        setRepeatAction(m_repeatAction, false);
++        setShiftHeld(false);
++    }
++}
++
++bool GamepadListener::hasDevices() const
++{
++    return !m_devices.isEmpty();
++}
++
++bool GamepadListener::effectivelyGrabbing() const
++{
++    // Holding Home suspends the grab, see the BTN_MODE case in handleButton()
++    return m_grabbing && !m_homeHeld;
++}
++
++void GamepadListener::applyGrab(Device *device)
++{
++    if (device->fd < 0) {
++        return;
++    }
++
++    // Ignore failures: another client may already hold the grab, in which case
++    // we simply keep reading the events non-exclusively.
++    if (libevdev_grab(device->dev, effectivelyGrabbing() ? LIBEVDEV_GRAB : LIBEVDEV_UNGRAB) != 0) {
++        qCDebug(PlasmaKeyboard) << "Could not change grab state of" << device->path;
++    }
++}
++
++void GamepadListener::updateGrab()
++{
++    for (Device *device : std::as_const(m_devices)) {
++        applyGrab(device);
++    }
++}
++
++void GamepadListener::rescan()
++{
++    if (!m_enabled) {
++        return;
++    }
++
++    const QDir dir(QString::fromLatin1(INPUT_DIR));
++    const QStringList nodes = dir.entryList({QStringLiteral("event*")}, QDir::System);
++
++    QStringList present;
++    present.reserve(nodes.size());
++
++    const bool had = hasDevices();
++
++    for (const QString &node : nodes) {
++        const QString path = dir.absoluteFilePath(node);
++        present.append(path);
++
++        if (!m_devices.contains(path)) {
++            addDevice(path);
++        }
++    }
++
++    // Drop devices whose node disappeared without us noticing a read error
++    const QStringList known = m_devices.keys();
++    for (const QString &path : known) {
++        if (!present.contains(path)) {
++            removeDevice(path);
++        }
++    }
++
++    if (had != hasDevices()) {
++        Q_EMIT hasDevicesChanged();
++    }
++}
++
++bool GamepadListener::addDevice(const QString &path)
++{
++    const int fd = ::open(path.toLocal8Bit().constData(), O_RDONLY | O_NONBLOCK | O_CLOEXEC);
++    if (fd < 0) {
++        // Most nodes are simply not readable by us, which is expected
++        return false;
++    }
++
++    libevdev *dev = nullptr;
++    if (libevdev_new_from_fd(fd, &dev) != 0) {
++        ::close(fd);
++        return false;
++    }
++
++    // A gamepad has the south face button plus either a stick or a d-pad hat.
++    // This is the same shape of check libinput uses to classify joysticks.
++    const bool isGamepad = libevdev_has_event_code(dev, EV_KEY, BTN_SOUTH)
++        && (libevdev_has_event_code(dev, EV_ABS, ABS_X) || libevdev_has_event_code(dev, EV_ABS, ABS_HAT0X)
++            || libevdev_has_event_code(dev, EV_KEY, BTN_DPAD_LEFT));
++
++    if (!isGamepad) {
++        libevdev_free(dev);
++        ::close(fd);
++        return false;
++    }
++
++    auto *device = new Device;
++    device->path = path;
++    device->fd = fd;
++    device->dev = dev;
++
++    const auto calibrate = [dev](int code, int &center, int &enter, int &leave) {
++        const int min = libevdev_get_abs_minimum(dev, code);
++        const int max = libevdev_get_abs_maximum(dev, code);
++        center = (min + max) / 2;
++        const int range = (max - min) / 2;
++        enter = int(range * STICK_ENTER);
++        leave = int(range * STICK_LEAVE);
++    };
++
++    if (libevdev_has_event_code(dev, EV_ABS, ABS_X)) {
++        calibrate(ABS_X, device->stickCenterX, device->stickEnterX, device->stickLeaveX);
++    }
++    if (libevdev_has_event_code(dev, EV_ABS, ABS_Y)) {
++        calibrate(ABS_Y, device->stickCenterY, device->stickEnterY, device->stickLeaveY);
++    }
++
++    device->notifier = new QSocketNotifier(fd, QSocketNotifier::Read, this);
++    connect(device->notifier, &QSocketNotifier::activated, this, [this, device] {
++        readFrom(device);
++    });
++
++    m_devices.insert(path, device);
++    applyGrab(device);
++
++    qCDebug(PlasmaKeyboard) << "Using game controller" << libevdev_get_name(dev) << "at" << path;
++    return true;
++}
++
++void GamepadListener::removeDevice(const QString &path)
++{
++    Device *device = m_devices.take(path);
++    if (!device) {
++        return;
++    }
++
++    // We may be inside the notifier's own signal emission when a device
++    // disappears mid-read, so unhook it now and destroy it once we are out.
++    device->notifier->setEnabled(false);
++    device->notifier->disconnect(this);
++    device->notifier->deleteLater();
++
++    libevdev_free(device->dev);
++    ::close(device->fd);
++    delete device;
++
++    if (m_devices.isEmpty()) {
++        // The controller went away mid-press
++        setNavigationKey(0);
++        setRepeatAction(m_repeatAction, false);
++        setShiftHeld(false);
++    }
++}
++
++void GamepadListener::closeAll()
++{
++    const bool had = hasDevices();
++
++    const QStringList paths = m_devices.keys();
++    for (const QString &path : paths) {
++        removeDevice(path);
++    }
++
++    setNavigationKey(0);
++    setRepeatAction(m_repeatAction, false);
++    setShiftHeld(false);
++
++    if (had) {
++        Q_EMIT hasDevicesChanged();
++    }
++}
++
++void GamepadListener::readFrom(Device *device)
++{
++    input_event event;
++    int status = 0;
++
++    do {
++        status = libevdev_next_event(device->dev, LIBEVDEV_READ_FLAG_NORMAL, &event);
++
++        if (status == LIBEVDEV_READ_STATUS_SYNC) {
++            // Dropped events: resynchronise and apply the recovered state
++            while (status == LIBEVDEV_READ_STATUS_SYNC) {
++                handleEvent(device, event);
++                status = libevdev_next_event(device->dev, LIBEVDEV_READ_FLAG_SYNC, &event);
++            }
++        } else if (status == LIBEVDEV_READ_STATUS_SUCCESS) {
++            handleEvent(device, event);
++        }
++    } while (status == LIBEVDEV_READ_STATUS_SUCCESS || status == LIBEVDEV_READ_STATUS_SYNC);
++
++    if (status != -EAGAIN) {
++        // The device was unplugged or errored out
++        const QString path = device->path;
++        removeDevice(path);
++        Q_EMIT hasDevicesChanged();
++    }
++}
++
++void GamepadListener::handleEvent(Device *device, const input_event &event)
++{
++    switch (event.type) {
++    case EV_KEY:
++        // value 2 is the kernel's own auto-repeat, we do our own
++        if (event.value != 2) {
++            handleButton(event.code, event.value != 0);
++        }
++        break;
++    case EV_ABS:
++        handleAxis(device, event.code, event.value);
++        break;
++    default:
++        break;
++    }
++}
++
++bool GamepadListener::handleButton(int code, bool pressed)
++{
++    switch (code) {
++    // D-pad reported as buttons (DualSense, some 8BitDo modes)
++    case BTN_DPAD_LEFT:
++        m_dpadLeft = pressed;
++        updateDirection();
++        return true;
++    case BTN_DPAD_RIGHT:
++        m_dpadRight = pressed;
++        updateDirection();
++        return true;
++    case BTN_DPAD_UP:
++        m_dpadUp = pressed;
++        updateDirection();
++        return true;
++    case BTN_DPAD_DOWN:
++        m_dpadDown = pressed;
++        updateDirection();
++        return true;
++
++    // A: type the highlighted key
++    case BTN_SOUTH:
++        if (pressed) {
++            Q_EMIT navigationKeyPressed(Qt::Key_Return);
++        } else {
++            Q_EMIT navigationKeyReleased(Qt::Key_Return);
++        }
++        return true;
++
++    // B: close the keyboard
++    case BTN_EAST:
++        if (pressed) {
++            Q_EMIT actionTriggered(Hide, false);
++        }
++        return true;
++
++    // X: backspace, repeating while held
++    case BTN_WEST:
++        setRepeatAction(Backspace, pressed);
++        return true;
++
++    // Y: space
++    case BTN_NORTH:
++        if (pressed) {
++            Q_EMIT actionTriggered(Space, false);
++        }
++        return true;
++
++    // Triggers, on the devices that report them as buttons rather than axes.
++    // Left is shift, right is enter.
++    case BTN_TL2:
++        setShiftHeld(pressed);
++        return true;
++    case BTN_TR2:
++        if (pressed) {
++            Q_EMIT actionTriggered(Enter, false);
++        }
++        return true;
++
++    // Home / Guide belongs to the shell, never to the keyboard: on this setup
++    // plasma-remotecontrollers turns it into the key that opens Plasma
++    // Bigscreen's home overlay. An exclusive grab would swallow it, so drop the
++    // grab for as long as it is held and take no action of our own.
++    case BTN_MODE:
++        m_homeHeld = pressed;
++        updateGrab();
++        return true;
++
++    // The bumpers are unbound on the Steam keyboard, so leave them to the
++    // application behind us when we are not grabbing.
++    default:
++        return false;
++    }
++}
++
++void GamepadListener::handleAxis(Device *device, int code, int value)
++{
++    switch (code) {
++    case ABS_HAT0X:
++        m_hatX = value > 0 ? 1 : (value < 0 ? -1 : 0);
++        updateDirection();
++        break;
++    case ABS_HAT0Y:
++        m_hatY = value > 0 ? 1 : (value < 0 ? -1 : 0);
++        updateDirection();
++        break;
++    case ABS_X:
++        m_stickX = axisDirection(value, device->stickCenterX, device->stickEnterX, device->stickLeaveX, m_stickX);
++        updateDirection();
++        break;
++    case ABS_Y:
++        m_stickY = axisDirection(value, device->stickCenterY, device->stickEnterY, device->stickLeaveY, m_stickY);
++        updateDirection();
++        break;
++    case ABS_Z:
++    case ABS_RZ: {
++        if (!hasAnalogTriggers(device)) {
++            break;
++        }
++
++        const int min = libevdev_get_abs_minimum(device->dev, code);
++        const int max = libevdev_get_abs_maximum(device->dev, code);
++        if (max <= min) {
++            break;
++        }
++
++        const bool active = double(value - min) / double(max - min) > TRIGGER_THRESHOLD;
++        const bool isLeft = code == ABS_Z;
++        bool &state = isLeft ? m_triggerLeft : m_triggerRight;
++        if (active == state) {
++            break;
++        }
++        state = active;
++
++        if (isLeft) {
++            // Left trigger is shift, held rather than toggled
++            setShiftHeld(active);
++        } else if (active) {
++            Q_EMIT actionTriggered(Enter, false);
++        }
++        break;
++    }
++    default:
++        break;
++    }
++}
++
++bool GamepadListener::hasAnalogTriggers(const Device *device)
++{
++    // A pad with a real right stick reports it as ABS_RX/ABS_RY, which leaves
++    // ABS_Z/ABS_RZ free to be the analog triggers. Pads without ABS_RX use
++    // ABS_Z/ABS_RZ for the right stick instead, and have no analog triggers.
++    return libevdev_has_event_code(device->dev, EV_ABS, ABS_RX);
++}
++
++void GamepadListener::setShiftHeld(bool held)
++{
++    if (held == m_shiftHeld) {
++        return;
++    }
++
++    m_shiftHeld = held;
++    Q_EMIT shiftHeldChanged(held);
++}
++
++int GamepadListener::axisDirection(int value, int center, int enter, int leave, int previous)
++{
++    const int offset = value - center;
++    const int threshold = previous == 0 ? enter : leave;
++
++    if (offset > threshold) {
++        return 1;
++    }
++    if (offset < -threshold) {
++        return -1;
++    }
++    return 0;
++}
++
++void GamepadListener::updateDirection()
++{
++    const int dpadX = m_dpadLeft ? -1 : (m_dpadRight ? 1 : 0);
++    const int dpadY = m_dpadUp ? -1 : (m_dpadDown ? 1 : 0);
++
++    // The d-pad wins over the stick so a resting stick cannot fight it
++    const int x = m_hatX != 0 ? m_hatX : (dpadX != 0 ? dpadX : m_stickX);
++    const int y = m_hatY != 0 ? m_hatY : (dpadY != 0 ? dpadY : m_stickY);
++
++    int key = 0;
++    if (x < 0) {
++        key = Qt::Key_Left;
++    } else if (x > 0) {
++        key = Qt::Key_Right;
++    } else if (y < 0) {
++        key = Qt::Key_Up;
++    } else if (y > 0) {
++        key = Qt::Key_Down;
++    }
++
++    setNavigationKey(key);
++}
++
++void GamepadListener::setNavigationKey(int key)
++{
++    if (key == m_navigationKey) {
++        return;
++    }
++
++    if (m_navigationKey != 0) {
++        Q_EMIT navigationKeyReleased(m_navigationKey);
++    }
++
++    m_navigationKey = key;
++
++    if (key != 0) {
++        Q_EMIT navigationKeyPressed(key);
++    }
++
++    restartRepeatTimer();
++}
++
++void GamepadListener::setRepeatAction(Action action, bool active)
++{
++    if (active) {
++        m_repeatAction = action;
++        m_repeatActionActive = true;
++        Q_EMIT actionTriggered(action, false);
++    } else if (m_repeatActionActive && m_repeatAction == action) {
++        m_repeatActionActive = false;
++    } else {
++        return;
++    }
++
++    restartRepeatTimer();
++}
++
++void GamepadListener::restartRepeatTimer()
++{
++    // A held direction takes priority over a held button
++    if (m_navigationKey == 0 && !m_repeatActionActive) {
++        m_repeatTimer.stop();
++        m_repeating = false;
++        return;
++    }
++
++    m_repeating = false;
++    m_repeatTimer.start(REPEAT_DELAY_MS);
++}
++
++void GamepadListener::onRepeatTimeout()
++{
++    if (!m_repeating) {
++        m_repeating = true;
++        m_repeatTimer.setInterval(REPEAT_INTERVAL_MS);
++    }
++
++    if (m_navigationKey != 0) {
++        Q_EMIT navigationKeyPressed(m_navigationKey);
++    } else if (m_repeatActionActive) {
++        Q_EMIT actionTriggered(m_repeatAction, true);
++    } else {
++        m_repeatTimer.stop();
++    }
++}
++
++#include "moc_gamepadlistener.cpp"
+diff --git a/src/gamepadlistener.h b/src/gamepadlistener.h
+new file mode 100644
+index 0000000..2365788
+--- /dev/null
++++ b/src/gamepadlistener.h
+@@ -0,0 +1,180 @@
++/*
++    SPDX-FileCopyrightText: 2026 Diego Villalobos <diegovillalobos397@gmail.com>
++
++    SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
++*/
++
++#pragma once
++
++#include <QHash>
++#include <QObject>
++#include <QTimer>
++
++struct libevdev;
++struct input_event;
++
++class QFileSystemWatcher;
++class QSocketNotifier;
++
++/**
++ * Listens to game controllers on /dev/input and turns them into keyboard
++ * navigation events for the on-screen keyboard.
++ *
++ * Devices are discovered by their evdev capabilities, so anything the kernel
++ * reports as a gamepad works (Xbox, DualSense, Switch Pro, 8BitDo, ...).
++ * Hotplugging is handled by watching /dev/input for new device nodes.
++ *
++ * Directions come from the d-pad (either as a hat axis or as buttons) and from
++ * the left analog stick, and auto-repeat while held. Everything else is
++ * reported as a high level Action so the caller can decide what to do with it.
++ *
++ * The button mapping mirrors the Steam Deck's on-screen keyboard: A types the
++ * highlighted key, B closes the keyboard, X is backspace, Y is space, the left
++ * trigger is shift and the right trigger is enter. The bumpers are unbound
++ * there, so they are unbound here too.
++ *
++ * The Home / Guide button is never ours: it belongs to the shell. The exclusive
++ * grab is dropped for as long as it is held so the rest of the session keeps
++ * receiving it.
++ */
++class GamepadListener : public QObject
++{
++    Q_OBJECT
++
++public:
++    enum Action {
++        Backspace,
++        Space,
++        Enter,
++        Hide,
++    };
++    Q_ENUM(Action)
++
++    explicit GamepadListener(QObject *parent = nullptr);
++    ~GamepadListener() override;
++
++    /**
++     * Whether controllers are watched at all. Disabling closes every device.
++     */
++    void setEnabled(bool enabled);
++    bool isEnabled() const;
++
++    /**
++     * Whether to take exclusive control (EVIOCGRAB) of the controllers.
++     *
++     * While grabbing, controller input no longer reaches the application
++     * behind the keyboard, which is what makes typing with a controller usable
++     * on top of a game. It should only be set while the panel is on screen.
++     */
++    void setGrabbing(bool grabbing);
++    bool isGrabbing() const;
++
++    /**
++     * Whether at least one controller is currently open.
++     */
++    bool hasDevices() const;
++
++Q_SIGNALS:
++    /**
++     * A navigation key (arrow keys or Return) was pressed on the controller.
++     *
++     * Repeats while a direction is held down.
++     */
++    void navigationKeyPressed(int key);
++    void navigationKeyReleased(int key);
++
++    /**
++     * A controller button mapped to a keyboard action was pressed.
++     *
++     * @p isRepeat is true for the presses synthesised while the button is held
++     * down, so that one-shot actions can ignore them.
++     */
++    void actionTriggered(GamepadListener::Action action, bool isRepeat);
++
++    /**
++     * The shift button is held down or was let go.
++     */
++    void shiftHeldChanged(bool held);
++
++    void hasDevicesChanged();
++
++private:
++    struct Device {
++        QString path;
++        int fd = -1;
++        libevdev *dev = nullptr;
++        QSocketNotifier *notifier = nullptr;
++
++        // Thresholds for the left stick, derived from the axis ranges reported
++        // by the device.
++        int stickEnterX = 0;
++        int stickLeaveX = 0;
++        int stickCenterX = 0;
++        int stickEnterY = 0;
++        int stickLeaveY = 0;
++        int stickCenterY = 0;
++    };
++
++    void rescan();
++    bool addDevice(const QString &path);
++    void removeDevice(const QString &path);
++    void closeAll();
++    void applyGrab(Device *device);
++    void updateGrab();
++
++    /**
++     * Whether we are actually holding the devices exclusively right now.
++     */
++    bool effectivelyGrabbing() const;
++
++    void readFrom(Device *device);
++    void handleEvent(Device *device, const input_event &event);
++    bool handleButton(int code, bool pressed);
++    void handleAxis(Device *device, int code, int value);
++    void setShiftHeld(bool held);
++
++    /**
++     * Whether ABS_Z / ABS_RZ are the analog triggers on this device rather
++     * than a second stick.
++     */
++    static bool hasAnalogTriggers(const Device *device);
++
++    void updateDirection();
++    void setNavigationKey(int key);
++    void setRepeatAction(Action action, bool active);
++    void restartRepeatTimer();
++    void onRepeatTimeout();
++
++    /**
++     * Hysteresis for analog axes, so a stick resting near the threshold does
++     * not spam direction changes.
++     */
++    static int axisDirection(int value, int center, int enter, int leave, int previous);
++
++    QHash<QString, Device *> m_devices;
++    QFileSystemWatcher *const m_watcher;
++    QTimer m_rescanTimer;
++    QTimer m_repeatTimer;
++
++    bool m_enabled = false;
++    bool m_grabbing = false;
++
++    // Direction sources, combined by updateDirection()
++    int m_hatX = 0;
++    int m_hatY = 0;
++    bool m_dpadLeft = false;
++    bool m_dpadRight = false;
++    bool m_dpadUp = false;
++    bool m_dpadDown = false;
++    int m_stickX = 0;
++    int m_stickY = 0;
++    bool m_triggerLeft = false;
++    bool m_triggerRight = false;
++    bool m_shiftHeld = false;
++    bool m_homeHeld = false;
++
++    int m_navigationKey = 0;
++    Action m_repeatAction = Backspace;
++    bool m_repeatActionActive = false;
++    bool m_repeating = false;
++};
+diff --git a/src/inputlisteneritem.cpp b/src/inputlisteneritem.cpp
+index ca6bb6a..2b30fc9 100644
+--- a/src/inputlisteneritem.cpp
++++ b/src/inputlisteneritem.cpp
+@@ -16,6 +16,11 @@
+ #include "overlay/prefixquerytrigger.h"
+ #include "overlay/textexpansiontrigger.h"
+ 
++#include <QDBusConnection>
++#include <QDBusMessage>
++#include <QDBusPendingCallWatcher>
++#include <QDBusPendingReply>
++#include <QDBusVariant>
+ #include <QLoggingCategory>
+ #include <QTextFormat>
+ 
+@@ -53,6 +58,9 @@ InputListenerItem::InputListenerItem()
+     // Grab and listen to physical keyboard input
+     m_input.setGrabbing(true);
+ 
++    // Listen to game controllers for keyboard navigation
++    setUpGamepad();
++
+     // Register overlay triggers
+     m_overlayController->registerTrigger(new LongPressTrigger(m_overlayController));
+     m_overlayController->registerTrigger(new PrefixQueryTrigger(m_overlayController));
+@@ -67,6 +75,9 @@ InputListenerItem::InputListenerItem()
+         }
+ 
+         if (hasContext) {
++            // A new text field is a fresh start for a keyboard the user closed
++            m_userDismissed = false;
++
+             QGuiApplication::inputMethod()->update(Qt::ImQueryAll);
+             QGuiApplication::inputMethod()->show();
+         } else {
+@@ -84,8 +95,11 @@ InputListenerItem::InputListenerItem()
+         }
+ 
+         if (m_input.hasContext()) {
+-            // Re-activate when text input activates, and there is context
+-            if (!window()->isVisible()) {
++            // Re-activate when text input activates, and there is context.
++            // Skip it when the user closed the keyboard on purpose: KWin emits a
++            // surrounding text update right after the panel goes away, which
++            // would otherwise pop it straight back open.
++            if (!window()->isVisible() && !m_userDismissed) {
+                 QGuiApplication::inputMethod()->setVisible(true);
+             }
+ 
+@@ -96,6 +110,7 @@ InputListenerItem::InputListenerItem()
+         }
+     });
+     connect(&m_input, &InputPlugin::deactivate, this, [this] {
++        m_userDismissed = false;
+         QGuiApplication::inputMethod()->setVisible(false);
+         QGuiApplication::inputMethod()->reset();
+     });
+@@ -104,6 +119,7 @@ InputListenerItem::InputListenerItem()
+     });
+     connect(QGuiApplication::inputMethod(), &QInputMethod::visibleChanged, this, [this] {
+         window()->setVisible(QGuiApplication::inputMethod()->isVisible());
++        updateGamepadGrab();
+     });
+ 
+     connect(&m_input, &InputPlugin::keyPressed, this, [this](QKeyEvent *keyEvent) {
+@@ -187,6 +203,159 @@ OverlayController *InputListenerItem::overlayController() const
+     return m_overlayController;
+ }
+ 
++void InputListenerItem::setUpGamepad()
++{
++    m_gamepad = new GamepadListener(this);
++
++    connect(m_gamepad, &GamepadListener::navigationKeyPressed, this, [this](int key) {
++        if (!gamepadUsable()) {
++            return;
++        }
++
++        // The first navigation key press only turns navigation mode on without
++        // selecting anything, so nudge the mode on before forwarding a press of
++        // the select button. Otherwise the user has to move the d-pad once
++        // before the keyboard reacts to anything.
++        if (key == Qt::Key_Return && !m_keyboardNavigationActive) {
++            Q_EMIT keyNavigationPressed(Qt::Key_Down);
++            Q_EMIT keyNavigationReleased(Qt::Key_Down);
++        }
++
++        Q_EMIT keyNavigationPressed(key);
++    });
++
++    connect(m_gamepad, &GamepadListener::navigationKeyReleased, this, [this](int key) {
++        if (!gamepadUsable()) {
++            return;
++        }
++        Q_EMIT keyNavigationReleased(key);
++    });
++
++    connect(m_gamepad, &GamepadListener::actionTriggered, this, [this](GamepadListener::Action action, bool isRepeat) {
++        if (!PlasmaKeyboardSettings::self()->gamepadNavigationEnabled()) {
++            return;
++        }
++
++        // Backspace doubles as the summon button: while the keyboard is off
++        // screen there is nothing to delete, so bring it up instead. This
++        // mirrors Steam, where the same button opens its on-screen keyboard.
++        if (action == GamepadListener::Backspace && !gamepadUsable()) {
++            if (!isRepeat) {
++                requestShow();
++            }
++            return;
++        }
++
++        if (!gamepadUsable()) {
++            return;
++        }
++
++        switch (action) {
++        case GamepadListener::Backspace:
++            sendKeysym(XKB_KEY_BackSpace);
++            break;
++        case GamepadListener::Space:
++            sendKeysym(XKB_KEY_space);
++            break;
++        case GamepadListener::Enter:
++            sendKeysym(XKB_KEY_Return);
++            break;
++        case GamepadListener::Hide:
++            m_userDismissed = true;
++            QGuiApplication::inputMethod()->setVisible(false);
++            break;
++        }
++    });
++
++    connect(m_gamepad, &GamepadListener::shiftHeldChanged, this, [this](bool held) {
++        // Always forward the release, otherwise shift stays stuck on when the
++        // panel goes away while the trigger is still down.
++        if (held && !gamepadUsable()) {
++            return;
++        }
++        Q_EMIT gamepadShiftHeldChanged(held);
++    });
++
++    // The window only exists once the item is parented into the scene
++    connect(this, &QQuickItem::windowChanged, this, [this](QQuickWindow *newWindow) {
++        if (newWindow) {
++            connect(newWindow, &QWindow::visibleChanged, this, &InputListenerItem::updateGamepadGrab, Qt::UniqueConnection);
++        }
++        updateGamepadGrab();
++    });
++
++    m_gamepad->setEnabled(PlasmaKeyboardSettings::self()->gamepadNavigationEnabled());
++
++    connect(PlasmaKeyboardSettings::self(), &PlasmaKeyboardSettings::gamepadNavigationEnabledChanged, this, [this] {
++        m_gamepad->setEnabled(PlasmaKeyboardSettings::self()->gamepadNavigationEnabled());
++        updateGamepadGrab();
++    });
++    connect(PlasmaKeyboardSettings::self(), &PlasmaKeyboardSettings::gamepadExclusiveEnabledChanged, this, [this] {
++        updateGamepadGrab();
++    });
++}
++
++bool InputListenerItem::gamepadUsable() const
++{
++    if (!PlasmaKeyboardSettings::self()->gamepadNavigationEnabled()) {
++        return false;
++    }
++
++    // The window can have isVisible() = true, but not be shown by the compositor if the input panel is suppressed
++    return window() && window()->isExposed();
++}
++
++void InputListenerItem::updateGamepadGrab()
++{
++    if (!m_gamepad) {
++        return;
++    }
++
++    const bool shown = window() && window()->isVisible();
++    m_gamepad->setGrabbing(shown && PlasmaKeyboardSettings::self()->gamepadNavigationEnabled()
++                           && PlasmaKeyboardSettings::self()->gamepadExclusiveEnabled());
++}
++
++void InputListenerItem::sendKeysym(uint keysym)
++{
++    const auto timestamp = QDateTime::currentMSecsSinceEpoch();
++    m_input.keysym(timestamp, keysym, InputPlugin::Pressed, 0);
++    m_input.keysym(timestamp, keysym, InputPlugin::Released, 0);
++}
++
++void InputListenerItem::requestShow()
++{
++    static const auto service = QStringLiteral("org.kde.KWin");
++    static const auto path = QStringLiteral("/VirtualKeyboard");
++    static const auto interface = QStringLiteral("org.kde.kwin.VirtualKeyboard");
++
++    // Only bring the keyboard up when the focused window has a text field to
++    // type into. Without this the summon button would pop the keyboard open in
++    // the middle of a game, where it shares a face button with a game action.
++    // Asking for the keyboard back overrides the earlier dismissal
++    m_userDismissed = false;
++
++    auto query = QDBusMessage::createMethodCall(service, path, QStringLiteral("org.freedesktop.DBus.Properties"), QStringLiteral("Get"));
++    query << interface << QStringLiteral("activeClientSupportsTextInput");
++
++    auto *watcher = new QDBusPendingCallWatcher(QDBusConnection::sessionBus().asyncCall(query), this);
++    connect(watcher, &QDBusPendingCallWatcher::finished, this, [](QDBusPendingCallWatcher *self) {
++        self->deleteLater();
++
++        const QDBusPendingReply<QDBusVariant> reply = *self;
++        if (reply.isError()) {
++            qCDebug(PlasmaKeyboard) << "Could not ask KWin about text input support:" << reply.error().message();
++            return;
++        }
++
++        if (!reply.value().variant().toBool()) {
++            return;
++        }
++
++        QDBusConnection::sessionBus().asyncCall(QDBusMessage::createMethodCall(service, path, interface, QStringLiteral("forceActivate")));
++    });
++}
++
+ void InputListenerItem::setEngine(QVirtualKeyboardInputEngine * /*engine*/)
+ {
+     // TODO: hook into engine events if necessary?
+diff --git a/src/inputlisteneritem.h b/src/inputlisteneritem.h
+index 1478c67..135913e 100644
+--- a/src/inputlisteneritem.h
++++ b/src/inputlisteneritem.h
+@@ -15,6 +15,7 @@
+ 
+ #include <xkbcommon/xkbcommon.h>
+ 
++#include "gamepadlistener.h"
+ #include "inputplugin.h"
+ 
+ class OverlayController;
+@@ -54,8 +55,48 @@ Q_SIGNALS:
+     void keyNavigationPressed(int key);
+     void keyNavigationReleased(int key);
+ 
++    /**
++     * The controller's shift button is held down or was let go.
++     */
++    void gamepadShiftHeldChanged(bool held);
++
+ private:
++    /**
++     * Set up the game controller listener and wire it into keyboard navigation.
++     */
++    void setUpGamepad();
++
++    /**
++     * Whether controller input should be acted upon right now.
++     */
++    bool gamepadUsable() const;
++
++    /**
++     * Grab the controllers only while the panel is actually on screen.
++     */
++    void updateGamepadGrab();
++
++    /**
++     * Send a full press/release of a keysym to the focused application.
++     */
++    void sendKeysym(uint keysym);
++
++    /**
++     * Ask the compositor to bring the keyboard up for the focused window.
++     *
++     * Does nothing when the focused window has nowhere to type, so that the
++     * summon button stays harmless while playing a game.
++     */
++    void requestShow();
++
+     InputPlugin m_input;
+     OverlayController *m_overlayController = nullptr;
++    GamepadListener *m_gamepad = nullptr;
+     bool m_keyboardNavigationActive = false;
++
++    /**
++     * Set when the user closed the keyboard themselves, so that the re-show on
++     * surrounding text changes does not immediately undo it.
++     */
++    bool m_userDismissed = false;
+ };
+diff --git a/src/plasmakeyboardsettings.kcfg b/src/plasmakeyboardsettings.kcfg
+index 54dd245..83fc4d9 100644
+--- a/src/plasmakeyboardsettings.kcfg
++++ b/src/plasmakeyboardsettings.kcfg
+@@ -25,6 +25,14 @@
+         <entry key="keyboardNavigationEnabled" type="bool">
+             <default>false</default>
+         </entry>
++        <entry key="gamepadNavigationEnabled" type="bool">
++            <label>Whether a connected game controller can drive the on-screen keyboard.</label>
++            <default>true</default>
++        </entry>
++        <entry key="gamepadExclusiveEnabled" type="bool">
++            <label>Whether to take exclusive control of game controllers while the keyboard is shown.</label>
++            <default>true</default>
++        </entry>
+         <entry key="autoCapitalizationEnabled" type="bool">
+             <label>Whether auto capitalization is enabled.</label>
+             <default>true</default>
+diff --git a/src/qml/main.qml b/src/qml/main.qml
+index 703f675..419310c 100644
+--- a/src/qml/main.qml
++++ b/src/qml/main.qml
+@@ -33,6 +33,20 @@ InputPanelWindow {
+         }
+     }
+ 
++    // Whether the controller's shift button is currently held down
++    property bool gamepadShiftHeld: false
++
++    // Qt VirtualKeyboard clears shift after every typed character, so put it
++    // back for as long as the controller's shift button is held.
++    Connections {
++        target: inputPanel.InputContext.priv.shiftHandler
++        function onShiftActiveChanged() {
++            if (root.gamepadShiftHeld && !inputPanel.InputContext.priv.shiftHandler.shiftActive) {
++                inputPanel.InputContext.priv.shiftHandler.shiftActive = true;
++            }
++        }
++    }
++
+     InputListenerItem {
+         id: thing
+         focus: true
+@@ -49,6 +63,13 @@ InputPanelWindow {
+             // HACK: invoke the Qt VirtualKeyboard keyboard navigation feature ourselves
+             inputPanel.InputContext.priv.navigationKeyReleased(key, false);
+         }
++
++        // The controller's left trigger acts as shift, held down rather than
++        // toggled, like it does on the Steam on-screen keyboard.
++        onGamepadShiftHeldChanged: (held) => {
++            root.gamepadShiftHeld = held;
++            inputPanel.InputContext.priv.shiftHandler.shiftActive = held;
++        }
+     }
+ 
+     // Unified overlay system for diacritics, emoji, text expansion, etc.

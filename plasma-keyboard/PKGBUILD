@@ -1,0 +1,38 @@
+# Rebuild of Arch's plasma-keyboard with the gamepad-navigation patch.
+# Tracks the upstream PKGBUILD by Antonio Rojas <arojas@archlinux.org>.
+pkgname=plasma-keyboard
+pkgver=6.7.4
+_dirver=$(echo $pkgver | cut -d. -f1-3)
+pkgrel=1.9
+pkgdesc='Virtual Keyboard for Qt based desktops (patched: driven by a game controller)'
+arch=(x86_64)
+url='https://kde.org/plasma-desktop/'
+license=(GPL-2.0-or-later)
+# libevdev is ours: the stock package does not read input devices directly.
+depends=(glibc kcmutils kconfig kcoreaddons kcrash ki18n kirigami kirigami-addons
+         kitemmodels libevdev libplasma libstdc++ libxkbcommon qt6-base qt6-declarative
+         qt6-virtualkeyboard wayland)
+makedepends=(extra-cmake-modules plasma-wayland-protocols wayland-protocols)
+groups=(plasma)
+options=(!debug)
+source=(https://download.kde.org/stable/plasma/$_dirver/$pkgname-$pkgver.tar.xz
+        0001-gamepad-navigation-for-the-on-screen-keyboard.patch)
+sha256sums=('7bbcf6df3e4f3aa2f0c59e33fdc5cfc93377c04369283f1900be8f7b8fe194a1'
+            '7c0539225b87cba50b4ed197ac06a24c4342d7fa9fc3f7225bcdbdcb1c3d6def')
+
+prepare() {
+  patch -d $pkgname-$pkgver -p1 < 0001-gamepad-navigation-for-the-on-screen-keyboard.patch
+}
+
+build() {
+  cmake -B build -S $pkgname-$pkgver \
+    -DCMAKE_INSTALL_PREFIX=/usr \
+    -DCMAKE_INSTALL_LIBEXECDIR=lib \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DBUILD_TESTING=OFF
+  cmake --build build
+}
+
+package() {
+  DESTDIR="$pkgdir" cmake --install build
+}

@@ -6,16 +6,19 @@ easy to get wrong and what is unsafe to run.
 
 ## What this repo is
 
-Two things that ship together because they are used together:
+Three things that ship together because they are used together:
 
 1. **`bin/tv-mode.sh`** — switches the machine into a 10-foot console (TV as the
    only head, HDMI audio, Plasma Bigscreen shell) and back. `bin/apollo-display.sh`
    is a related Apollo/Sunshine prep-cmd.
 2. **`plasma-bigscreen/`** — a patch against upstream Plasma Bigscreen `v6.7.4` that
    lists running apps inline in the home overlay sidebar, plus a PKGBUILD.
+3. **`plasma-keyboard/`** — a patch against upstream `plasma-keyboard` `v6.7.4` that
+   lets a game controller drive the on-screen keyboard, plus a PKGBUILD.
 
 There is no build system, no test suite and no CI. The scripts are POSIX `sh`
-(`#!/bin/sh`, not bash — keep it that way). The patch is plain QML.
+(`#!/bin/sh`, not bash — keep it that way). The Bigscreen patch is plain QML; the
+keyboard patch is C++ and QML and does have to compile (`makepkg -Cf`).
 
 ## This repo edits the live session
 
@@ -96,6 +99,59 @@ qdbus6 | grep -i biglauncher                                     # Bigscreen she
 A clean build proves nothing about runtime — QML errors only appear when the
 containment loads. Check the log.
 
+## Working on the keyboard patch
+
+Upstream already had keyboard navigation of the on-screen keys, driven only by a
+physical keyboard's arrow keys through `InputListenerItem` into
+`InputContext.priv.navigationKeyPressed`. The patch feeds a controller into **that
+same path** rather than building a parallel one. Keep it that way.
+
+```sh
+git clone -b v6.7.4 https://invent.kde.org/plasma/plasma-keyboard.git
+# edit, then:
+git diff v6.7.4 -- . ':(exclude)build' > .../plasma-keyboard/0001-....patch
+# update the patch sha256 in the PKGBUILD, then:
+cd plasma-keyboard && makepkg -Cf && sudo pacman -U plasma-keyboard-*.pkg.tar.zst
+pkill -x plasma-keyboard     # KWin respawns it on demand
+```
+
+**`makepkg -Cf`, not `makepkg -f`.** Without `-C` the previously patched `src/` is
+reused and `patch` reports "1 out of 1 hunk ignored" — it is detecting its own work,
+not a broken patch.
+
+### Load-bearing details
+
+- **The grab excludes `BTN_MODE`.** `EVIOCGRAB` is all-or-nothing, so while the panel
+  is up it would swallow the controller's Home button — the one
+  `plasma-remotecontrollers` turns into the Bigscreen home-overlay key. The grab is
+  released for as long as Home is held. Remove that and Home dies while typing.
+- **`m_userDismissed`.** Upstream re-shows the panel on *any* `surroundingTextChanged`
+  while it is hidden, and KWin emits one immediately after a hide — so closing the
+  keyboard bounced it straight back open. The flag suppresses that one re-show and is
+  cleared on a new input context, on deactivate, and on an explicit summon. It is not
+  redundant.
+- **Trigger axes are detected via `ABS_RX`.** Pads with a real right stick report it
+  there, leaving `ABS_Z`/`ABS_RZ` free to be the analog triggers; pads without it use
+  `ABS_Z`/`ABS_RZ` *for* the right stick. Inverting this check makes L2/R2 dead on
+  every Xbox-style pad.
+- **X summons only when `activeClientSupportsTextInput` is true.** X is a face button
+  games use. Without the check, `forceActivate()` pops the keyboard mid-game.
+- **Shift is re-asserted from QML.** Qt VirtualKeyboard clears `shiftActive` after
+  every character, so hold-to-shift needs the `onShiftActiveChanged` handler in
+  `main.qml` putting it back. Deleting it makes only the first letter capitalise.
+- **Devices are matched by capability, not by name** — `BTN_SOUTH` plus a stick or a
+  hat. Do not add a vendor/product allowlist.
+
+### Verifying
+
+A clean build proves nothing. Check the running process actually opened the pad:
+
+```sh
+sudo ls -l /proc/$(pgrep -x plasma-keyboard)/fd | grep input/event
+```
+
+Then focus a text field and drive it. Reading `/dev/input` needs the `input` group.
+
 ## Inspecting a running Bigscreen shell
 
 Useful and safe:
@@ -130,8 +186,8 @@ second time to close it, and confirm with a screenshot.
 
 ## Gotcha that outlives this repo
 
-The patched package installs a **byte-identical file list** to stock
-`plasma-bigscreen`. Any `pacman -Syu` that updates it reverts the patch with no
-warning and nothing looks broken. The only tell is `pacman -Qi`: pkgrel `1.9` and a
-`(patched: ...)` description. If a user reports the shortcuts "just disappeared",
-check that first.
+Both patched packages install a **byte-identical file list** to stock
+`plasma-bigscreen` / `plasma-keyboard`. Any `pacman -Syu` that updates either reverts
+the patch with no warning and nothing looks broken. The only tell is `pacman -Qi`:
+pkgrel `1.9` and a `(patched: ...)` description. If a user reports the shortcuts "just
+disappeared" or the controller "stopped typing", check that first.

@@ -2,6 +2,9 @@
 plasma-bigscreen/src/
 plasma-bigscreen/pkg/
 plasma-bigscreen/build/
+plasma-keyboard/src/
+plasma-keyboard/pkg/
+plasma-keyboard/build/
 *.pkg.tar.zst
 *.tar.xz
 *.log

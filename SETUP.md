@@ -1,7 +1,7 @@
 # Setup
 
 Start to finish: dependencies, adapting the scripts to your hardware, installing,
-building the Bigscreen patch, and wiring up the controller and streaming.
+building the two patched Plasma packages, and wiring up the controller and streaming.
 
 Everything here targets **Arch / CachyOS with Plasma 6.7 on Wayland**. On another
 distro the scripts still work but the package names and the `plasma-bigscreen`
@@ -12,7 +12,7 @@ build do not.
 ## 1. Dependencies
 
 ```sh
-sudo pacman -S --needed libkscreen jq libpulse libnotify qt6-tools plasma-bigscreen
+sudo pacman -S --needed libkscreen jq libpulse libnotify qt6-tools plasma-bigscreen libevdev
 ```
 
 | Package | Provides | Used for |
@@ -23,6 +23,7 @@ sudo pacman -S --needed libkscreen jq libpulse libnotify qt6-tools plasma-bigscr
 | `libnotify` | `notify-send` | the toasts; optional, failures are swallowed |
 | `qt6-tools` | `qdbus6` | inspecting/setting the Bigscreen shortcuts |
 | `plasma-bigscreen` | the 10-foot shell | the mode's whole point |
+| `libevdev` | reading controllers | build dep of the on-screen keyboard patch (§5) |
 
 Optional:
 
@@ -150,7 +151,71 @@ Stock: `6.7.4-1.1` and `Plasma shell for TVs`.
 
 ---
 
-## 5. Controller and remote
+## 5. Build the on-screen keyboard patch
+
+Same shape as §4, and the same revert-on-upgrade caveat.
+
+```sh
+cd plasma-keyboard
+makepkg -si
+```
+
+Installs as **`6.7.4-1.9`** with the description `(patched: driven by a game
+controller)`. The keyboard is respawned by KWin on demand, so there is no shell
+reload — just restart it:
+
+```sh
+pkill -x plasma-keyboard
+```
+
+### Confirming it took
+
+```sh
+pacman -Qi plasma-keyboard | grep -E '^(Version|Description)'
+```
+
+Then focus any text field and check the keyboard actually opened your controller:
+
+```sh
+sudo ls -l /proc/$(pgrep -x plasma-keyboard)/fd | grep input/event
+```
+
+One line per controller. Nothing means the device was not recognised as a gamepad
+— it needs `BTN_SOUTH` plus a stick or a hat — or that you are not in the `input`
+group (`id -nG | grep input`).
+
+### Using it
+
+| Input | Keyboard shown | Keyboard hidden |
+| --- | --- | --- |
+| D-pad / left stick | Move the highlight (repeats) | — |
+| A | Type the highlighted key | — |
+| B | Close the keyboard | — |
+| X | Backspace (repeats) | **Summon the keyboard** |
+| Y | Space | — |
+| L2 | Shift, held rather than toggled | — |
+| R2 | Enter | — |
+| L1 / R1 | Unbound, as on Steam | — |
+| Home / Guide | Passed through to the shell | Passed through to the shell |
+
+Copied from the Steam Deck's on-screen keyboard, so it needs no learning. X does
+double duty because the two states never overlap.
+
+### Settings
+
+System Settings → Plasma Keyboard, or `~/.config/plasmakeyboardrc`:
+
+| Setting | Default | What it does |
+| --- | --- | --- |
+| Game controller navigation | on | The whole feature. Off closes every device. |
+| Reserve the controller | on | `EVIOCGRAB` while the panel is up, so the app underneath does not also act on your presses. Turn it off if a game needs the pad while a text field is focused. |
+
+Home / Guide is excluded from the grab even when reserving is on — see §6, it is
+the button that opens the Bigscreen overlay.
+
+---
+
+## 6. Controller and remote
 
 ### The daemon
 
@@ -211,6 +276,14 @@ qdbus6 org.kde.biglauncher /BigLauncher org.kde.biglauncher.resetDisplayHomeScre
 
 `org.kde.biglauncher` is only on the bus while the Bigscreen shell is running.
 
+### Typing
+
+The on-screen keyboard is driven by the same controller, through a different
+mechanism — `plasma-keyboard` reads `/dev/input` itself rather than going through
+`plasma-remotecontrollers`. Mapping and settings are in §5. The two do not
+conflict: the keyboard leaves Home / Guide alone precisely so the shortcuts above
+keep working while it is on screen.
+
 ### CEC
 
 Install `libcec` and the TV's own remote drives the same shortcuts over HDMI. If input
@@ -218,7 +291,7 @@ is dead, check `plasma-remotecontrollers` is running before suspecting the TV.
 
 ---
 
-## 6. Streaming (optional)
+## 7. Streaming (optional)
 
 `apollo-display.sh` is an Apollo/Sunshine **prep-cmd**, not something you run by hand.
 Apollo and Sunshine cannot change display mode on Linux — `libdisplaydevice` is
@@ -239,7 +312,7 @@ state through their own file, and interleaving them will restore the wrong layou
 
 ---
 
-## 7. Troubleshooting
+## 8. Troubleshooting
 
 | Symptom | Cause |
 | --- | --- |
@@ -250,16 +323,21 @@ state through their own file, and interleaving them will restore the wrong layou
 | Sound only moves for newly started apps | Expected of `set-default-sink` alone; the script also walks `sink-inputs`. If you changed that part, put it back. |
 | Two shells fighting after a failed switch | `shell_restore` handles the legacy non-systemd case, but if you hit it, `pkill -x plasmashell` then `systemctl --user start plasma-plasmashell.service`. |
 | Task shortcuts gone from the sidebar | `pacman` replaced the patched package. See §4. |
+| Controller does nothing on the on-screen keyboard | `pacman` replaced the patched `plasma-keyboard`; or the pad is not in the fd list from §5; or you are not in the `input` group. |
+| Controller Home stops opening the Bigscreen overlay while typing | The grab exclusion for `BTN_MODE` was removed. It is what keeps Home reaching `plasma-remotecontrollers` while the panel is up. |
+| L2/R2 do nothing on the keyboard | Trigger detection keys off `ABS_RX` — a pad with no right stick reports its triggers where a right stick would be, and they are skipped. Check `evtest`. |
+| Keyboard pops back open right after closing it | Upstream re-shows it on any surrounding-text update. The patch suppresses that after a deliberate close; if it returns, `m_userDismissed` in `inputlisteneritem.cpp` is no longer being set or is being cleared too eagerly. |
+| Keyboard appears mid-game on an X press | The summon path checks KWin's `activeClientSupportsTextInput` first, but a game that binds the text-input protocol can still report true. Turn off "Game controller navigation" for that session. |
 | Stuck in TV mode after a crash | State lives in `$XDG_RUNTIME_DIR`, so a reboot always lands back on the desktop. Or `tv-mode.sh off`. |
 
 ---
 
-## 8. Uninstall
+## 9. Uninstall
 
 ```sh
 rm ~/.local/bin/tv-mode.sh ~/.local/bin/apollo-display.sh
 rm ~/.local/share/applications/tv-mode.desktop
-sudo pacman -S plasma-bigscreen          # back to the stock package
+sudo pacman -S plasma-bigscreen plasma-keyboard   # back to the stock packages
 ```
 
 Run `tv-mode.sh off` first if you are currently in TV mode.
