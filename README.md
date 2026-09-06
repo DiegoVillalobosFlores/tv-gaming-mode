@@ -14,6 +14,13 @@ Built for one machine (CachyOS, Plasma 6.7, NVIDIA AD102, LG TV on `HDMI-A-1`).
 The head name, PCI address and sink description at the top of `bin/tv-mode.sh`
 are hardware-specific — read them before running this anywhere else.
 
+<p align="center">
+  <img src="docs/home-overlay-sidebar.png" alt="The Bigscreen home overlay sidebar, listing Discord, kitty, Orca, Steam and TIDAL Hi-Fi as shortcuts between Search and All Open Apps" width="300">
+</p>
+<p align="center">
+  <em>The patched home overlay: the running apps listed inline, one press from the Home button.</em>
+</p>
+
 **[Setup and configuration →](SETUP.md)** — dependencies, adapting the scripts to
 your hardware, building the patch, controller mapping, troubleshooting.
 Agents working in this repo should start with [AGENTS.md](AGENTS.md).
