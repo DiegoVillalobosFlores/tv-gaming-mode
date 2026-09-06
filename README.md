@@ -9,6 +9,10 @@ Built for one machine (CachyOS, Plasma 6.7, NVIDIA AD102, LG TV on `HDMI-A-1`).
 The head name, PCI address and sink description at the top of `bin/tv-mode.sh`
 are hardware-specific — read them before running this anywhere else.
 
+**[Setup and configuration →](SETUP.md)** — dependencies, adapting the scripts to
+your hardware, building the patch, controller mapping, troubleshooting.
+Agents working in this repo should start with [AGENTS.md](AGENTS.md).
+
 ## Contents
 
 | Path | What it is |
@@ -17,6 +21,9 @@ are hardware-specific — read them before running this anywhere else.
 | `bin/apollo-display.sh` | Apollo/Sunshine `prep-cmd` that does the same head swap for game streaming. |
 | `desktop/tv-mode.desktop` | Launcher, with *Switch to the TV* / *Back to the desktop* actions. |
 | `plasma-bigscreen/` | A patch against Plasma Bigscreen 6.7.4, plus a PKGBUILD that builds it. |
+| `install.sh` | Copies the scripts and launcher into `~/.local`. |
+| `SETUP.md` | Full setup and configuration guide. |
+| `AGENTS.md` | Invariants and unsafe commands, for coding agents. |
 
 ## How the switch works
 
@@ -65,28 +72,17 @@ The old **Tasks** button stays, below the list and relabelled **All Open Apps**,
 so the grid overview with hold-to-close and *Close all apps* is still reachable.
 Nothing was removed.
 
-### Building it
+## Installing
 
 ```sh
-cd plasma-bigscreen
-makepkg -si
+./install.sh                          # scripts + launcher into ~/.local
+cd plasma-bigscreen && makepkg -si    # the patched Bigscreen package
+plasmashell --replace                 # reload, from inside the Bigscreen session
 ```
 
-Installs as `6.7.4-1.tasks1`. Any `pacman -Syu` that updates `plasma-bigscreen`
-replaces it with the stock build — rerun `makepkg -si` (and bump `pkgver` +
-`sha256sums`) after an upstream bump.
+The patched package installs as `6.7.4-1.9`, and **any `pacman -Syu` that updates
+`plasma-bigscreen` silently reverts it** — the file list is identical to stock, so
+nothing looks wrong. `pacman -Qi plasma-bigscreen` is the tell.
 
-## Installing the mode switch
-
-```sh
-./install.sh
-```
-
-Copies the scripts to `~/.local/bin` and the launcher to
-`~/.local/share/applications`. The `.desktop` file hardcodes
-`/home/diegov/.local/bin/tv-mode.sh`; `install.sh` rewrites that path to `$HOME`.
-
-## Requirements
-
-`kscreen-doctor`, `jq`, `pactl` (PipeWire), `plasma-bigscreen`, `libcec` for the
-TV remote, and `notify-send` for the toasts.
+Adapting the hardware constants to a different machine, the controller button
+mapping, the Apollo prep-cmd and troubleshooting are all in **[SETUP.md](SETUP.md)**.
