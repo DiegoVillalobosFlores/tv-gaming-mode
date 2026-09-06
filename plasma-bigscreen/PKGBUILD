@@ -1,0 +1,40 @@
+# Rebuild of Arch's plasma-bigscreen with the home-overlay task-shortcuts patch.
+# Tracks the upstream PKGBUILD by Antonio Rojas <arojas@archlinux.org>.
+pkgname=plasma-bigscreen
+pkgver=6.7.4
+_dirver=$(echo $pkgver | cut -d. -f1-3)
+pkgrel=1.tasks1
+pkgdesc='Plasma shell for TVs (patched: running apps listed in the home overlay sidebar)'
+arch=(x86_64)
+url='https://plasma-bigscreen.org/'
+license=(GPL-2.0-or-later)
+depends=(bluez-qt glibc kcmutils kconfig kcoreaddons kdbusaddons kdeclarative kdeconnect
+         kglobalaccel ki18n kiconthemes kio kirigami kirigami-addons kitemmodels kjobwidgets
+         knotifications kpackage kservice ksvg kwindowsystem layer-shell-qt libgcc libkscreen
+         libplasma libstdc++ milou plasma-activities plasma-nano plasma-workspace plasma5support
+         qcoro qt6-5compat qt6-base qt6-declarative qt6-multimedia qt6-webengine sdl3 sh solid)
+makedepends=(extra-cmake-modules libcec plasma-wayland-protocols)
+optdepends=('libcec: support for CEC devices (ex. TV Remotes)')
+groups=(plasma)
+options=(!debug)
+source=(https://download.kde.org/stable/plasma/$_dirver/$pkgname-$pkgver.tar.xz
+        0001-homescreen-list-running-apps-in-home-overlay.patch)
+sha256sums=('5fb76e3777ce03bd4ded119fb169efeb308a38f43dec009197158abec134441c'
+            '4f644377503c081f52131a407ec51aefa45a00e021b206ed13c72fc6ca2aad75')
+
+prepare() {
+  patch -d $pkgname-$pkgver -p1 < 0001-homescreen-list-running-apps-in-home-overlay.patch
+}
+
+build() {
+  cmake -B build -S $pkgname-$pkgver \
+    -DCMAKE_INSTALL_PREFIX=/usr \
+    -DCMAKE_INSTALL_LIBEXECDIR=lib \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DBUILD_TESTING=OFF
+  cmake --build build
+}
+
+package() {
+  DESTDIR="$pkgdir" cmake --install build
+}

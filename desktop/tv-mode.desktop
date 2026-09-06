@@ -1,0 +1,18 @@
+[Desktop Entry]
+Type=Application
+Name=TV Gaming Mode
+Comment=LG TV only, HDMI audio, Plasma Bigscreen — run again to go back
+Icon=video-television
+Exec=/home/diegov/.local/bin/tv-mode.sh toggle
+Terminal=false
+StartupNotify=false
+Categories=Game;
+Actions=on;off;
+
+[Desktop Action on]
+Name=Switch to the TV
+Exec=/home/diegov/.local/bin/tv-mode.sh on
+
+[Desktop Action off]
+Name=Back to the desktop
+Exec=/home/diegov/.local/bin/tv-mode.sh off

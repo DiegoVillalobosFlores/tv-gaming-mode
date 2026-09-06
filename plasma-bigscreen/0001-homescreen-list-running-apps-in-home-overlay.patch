@@ -1,0 +1,151 @@
+diff --git a/containments/homescreen/package/contents/ui/homeoverlay/HomeOverlayWindow.qml b/containments/homescreen/package/contents/ui/homeoverlay/HomeOverlayWindow.qml
+index 9307b91..3f495cb 100644
+--- a/containments/homescreen/package/contents/ui/homeoverlay/HomeOverlayWindow.qml
++++ b/containments/homescreen/package/contents/ui/homeoverlay/HomeOverlayWindow.qml
+@@ -99,6 +99,7 @@ Window {
+             MainColumn {
+                 id: mainColumn
+                 showTasksButton: tasksView.taskCount > 0
++                tasksModel: tasksView.taskManagerModel
+ 
+                 anchors.top: parent.top
+                 anchors.bottom: parent.bottom
+@@ -123,6 +124,10 @@ Window {
+                     tasksView.open();
+                     tasksView.forceActiveFocus();
+                 }
++                onTaskActivationRequested: (index) => {
++                    tasksView.activateTask(index);
++                    window.hideOverlay();
++                }
+                 onSettingsRequested: {
+                     window.settingsRequested();
+                     window.hideOverlay();
+diff --git a/containments/homescreen/package/contents/ui/homeoverlay/MainColumn.qml b/containments/homescreen/package/contents/ui/homeoverlay/MainColumn.qml
+index b055c3e..d52f59a 100644
+--- a/containments/homescreen/package/contents/ui/homeoverlay/MainColumn.qml
++++ b/containments/homescreen/package/contents/ui/homeoverlay/MainColumn.qml
+@@ -18,16 +18,22 @@ ColumnLayout {
+     property bool showTasksButton
+     property bool closeControllerSuppressState
+ 
++    // TaskManager.TasksModel of the currently running apps, listed inline below
++    property var tasksModel
++
+     signal minimizeAllTasksRequested()
+     signal searchRequested()
+     signal tasksRequested()
+     signal settingsRequested()
++    signal taskActivationRequested(int index)
+ 
+     signal closeRequested()
+     signal screenshotRequested()
+ 
+     function focusTasks() {
+-        if (tasksButton.visible) {
++        if (tasksRepeater.count > 0) {
++            tasksRepeater.itemAt(0).forceActiveFocus();
++        } else if (tasksButton.visible) {
+             tasksButton.forceActiveFocus();
+         } else {
+             searchButton.forceActiveFocus();
+@@ -139,7 +145,13 @@ ColumnLayout {
+                 id: searchButton
+                 Layout.fillWidth: true
+ 
+-                KeyNavigation.down: tasksButton.downItem
++                Keys.onDownPressed: {
++                    if (tasksRepeater.count > 0) {
++                        tasksRepeater.itemAt(0).forceActiveFocus();
++                    } else {
++                        tasksButton.downItem.forceActiveFocus();
++                    }
++                }
+ 
+                 text: i18n("Search")
+                 icon.name: "system-search-symbolic"
+@@ -148,6 +160,45 @@ ColumnLayout {
+                 }
+             }
+ 
++            Repeater {
++                id: tasksRepeater
++                model: root.tasksModel
++
++                delegate: Bigscreen.ButtonDelegate {
++                    id: taskDelegate
++                    Layout.fillWidth: true
++
++                    readonly property int taskIndex: index
++                    readonly property var taskIcon: model.decoration
++
++                    text: model.AppName
++                    leading: Kirigami.Icon {
++                        implicitWidth: Kirigami.Units.iconSizes.smallMedium
++                        implicitHeight: Kirigami.Units.iconSizes.smallMedium
++                        source: taskDelegate.taskIcon
++                    }
++
++                    Keys.onUpPressed: {
++                        if (taskDelegate.taskIndex === 0) {
++                            searchButton.forceActiveFocus();
++                        } else {
++                            tasksRepeater.itemAt(taskDelegate.taskIndex - 1).forceActiveFocus();
++                        }
++                    }
++                    Keys.onDownPressed: {
++                        if (taskDelegate.taskIndex === tasksRepeater.count - 1) {
++                            tasksButton.downItem.forceActiveFocus();
++                        } else {
++                            tasksRepeater.itemAt(taskDelegate.taskIndex + 1).forceActiveFocus();
++                        }
++                    }
++
++                    onClicked: {
++                        root.taskActivationRequested(taskDelegate.taskIndex);
++                    }
++                }
++            }
++
+             Bigscreen.ButtonDelegate {
+                 id: tasksButton
+                 Layout.fillWidth: true
+@@ -155,10 +206,16 @@ ColumnLayout {
+                 property Item downItem: visible ? tasksButton : controllerButton.downItem
+                 property Item upItem: visible ? tasksButton : searchButton
+                 KeyNavigation.down: controllerButton.downItem
+-                KeyNavigation.up: searchButton
++                Keys.onUpPressed: {
++                    if (tasksRepeater.count > 0) {
++                        tasksRepeater.itemAt(tasksRepeater.count - 1).forceActiveFocus();
++                    } else {
++                        searchButton.forceActiveFocus();
++                    }
++                }
+ 
+                 visible: showTasksButton
+-                text: i18nc("@action:button Opens an overview of all currently running apps", "Tasks")
++                text: i18nc("@action:button Opens an overview of all currently running apps", "All Open Apps")
+                 icon.name: "transform-shear-up"
+ 
+                 onClicked: {
+diff --git a/containments/homescreen/package/contents/ui/homeoverlay/TasksView.qml b/containments/homescreen/package/contents/ui/homeoverlay/TasksView.qml
+index 93480e6..9a265fe 100644
+--- a/containments/homescreen/package/contents/ui/homeoverlay/TasksView.qml
++++ b/containments/homescreen/package/contents/ui/homeoverlay/TasksView.qml
+@@ -18,6 +18,15 @@ Rectangle {
+ 
+     readonly property int taskCount: tasksModel.count
+ 
++    // Exposed so the sidebar can list the running apps inline
++    readonly property alias taskManagerModel: tasksModel
++
++    // Bring a single task to the front, same semantics as TaskDelegate's onClicked
++    function activateTask(index) {
++        tasksModel.minimizeAllTasks();
++        tasksModel.requestActivate(tasksModel.makeModelIndex(index));
++    }
++
+     property real leftMargin
+ 
+     signal focusTasksRequested()

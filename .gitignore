@@ -1,0 +1,7 @@
+# makepkg output
+plasma-bigscreen/src/
+plasma-bigscreen/pkg/
+plasma-bigscreen/build/
+*.pkg.tar.zst
+*.tar.xz
+*.log
