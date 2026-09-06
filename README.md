@@ -31,10 +31,16 @@ Agents working in this repo should start with [AGENTS.md](AGENTS.md).
 | --- | --- |
 | `bin/tv-mode.sh` | The mode switch: `on` / `off` / `toggle` / `status`. |
 | `bin/apollo-display.sh` | Apollo/Sunshine `prep-cmd` that does the same head swap for game streaming. |
+| `bin/tv-mode-watch.sh` | Watches the TV remote and switches into TV mode on its first click. |
+| `bin/tv-mode-boot.sh` | Lands a boot in TV mode when it was started from the game controller. |
+| `bin/tv-mode-input.sh` | The `evtest` plumbing both watchers source. |
 | `desktop/tv-mode.desktop` | Launcher, with *Switch to the TV* / *Back to the desktop* actions. |
+| `systemd/tv-mode-watch.service` | User unit that runs the watcher for the graphical session. |
+| `systemd/tv-mode-boot.service` | User unit that runs the boot check once per login. |
+| `udev/93-wolverine-wake.rules` | Arms the controller's receiver as a system wake source. |
 | `plasma-bigscreen/` | A patch against Plasma Bigscreen 6.7.4, plus a PKGBUILD that builds it. |
 | `plasma-keyboard/` | A patch against Plasma's on-screen keyboard 6.7.4 adding game-controller input, plus a PKGBUILD. |
-| `install.sh` | Copies the scripts and launcher into `~/.local`. |
+| `install.sh` | Copies the scripts, launcher and unit into `~/.local` and `~/.config`. |
 | `SETUP.md` | Full setup and configuration guide. |
 | `AGENTS.md` | Invariants and unsafe commands, for coding agents. |
 
@@ -122,21 +128,83 @@ The mapping copies the Steam Deck's on-screen keyboard, so it needs no learning:
 | R2 | Enter | — |
 | L1 / R1 | Unbound, as on Steam | — |
 
-Two things are deliberate and easy to "fix" wrongly:
+Three things are deliberate and easy to "fix" wrongly:
 
+- **It stands down while a game is reading the controller.** Nothing summons, and
+  nothing is grabbed, while another process holds the pad's `/dev/input` nodes
+  open. Without this, pressing X in a game popped the keyboard over it — and
+  worse, the grab below took the controller away from the game entirely. The
+  session's own input plumbing (`plasma-remotecontrollers`,
+  `plasma-bigscreen-inputhandler`) and the Steam client are excluded from the
+  check: all three hold every pad open for the whole session, so counting them
+  would disable the feature permanently. A game launched through Steam is its own
+  process and is *not* excluded.
 - **The controller is grabbed (`EVIOCGRAB`) while the panel is up**, so the app
   underneath does not also act on your A presses. **Home / Guide (`BTN_MODE`) is
   excluded** — the grab is dropped for as long as it is held, because on this
   machine that button is what `plasma-remotecontrollers` turns into the Bigscreen
   home overlay key. Without the exclusion the keyboard swallows it.
 - **X summons only when the focused window reports it can take text input**
-  (KWin's `activeClientSupportsTextInput`). X is a face button games use; without
-  that check the keyboard would pop up mid-game.
+  (KWin's `activeClientSupportsTextInput`). A second guard behind the first: a
+  Proton game reports true here, which is how the keyboard reached Monster Hunter
+  Wilds before the standdown existed.
+
+## Switching on the remote alone
+
+The TV's own keyboard/mouse combo can arm the switch, so going to the couch is
+just picking the remote up:
+
+```sh
+systemctl --user enable --now tv-mode-watch.service
+```
+
+`bin/tv-mode-watch.sh` reads the remote's mouse node through `evtest` and runs
+`tv-mode.sh on` the first time its left button goes down. It only reads the
+device — it never grabs it — so the click still lands on whatever is underneath.
+
+"First" means *while TV mode is off*: once the switch has happened, further
+clicks are ordinary clicks, and going back to the desktop re-arms it. If the TV
+is off the head is not on the bus at all, `tv-mode.sh` says so and the watcher
+backs off for 30 seconds rather than repeating the notification on every click.
+
+## Starting the machine from the couch
+
+Pressing **Home** on the controller to wake a machine that is fully off, and
+having it come up on the TV, is two halves that fail independently.
+
+The **power-on** is firmware, and on this hardware it **does not work**. ASRock's
+`USB Keyboard/Remote Power On` watches for HID keyboard reports, and while the
+Wolverine's receiver does enumerate a keyboard interface next to the pad, that
+interface is permanently silent: a 90-second `evtest` capture across all three of
+its nodes caught 196 events on the joystick node (Home arrives as `BTN_MODE`) and
+zero on the keyboard one. There is nothing for the firmware to see in S5, so no
+BIOS setting or port choice changes the outcome. Two popular explanations are
+ruled out — every USB controller on this board, chipset included, is an enabled
+ACPI wake source, and `udev/93-wolverine-wake.rules` correctly leaves the receiver
+at `wakeup=enabled`. The fallbacks are suspend (S3), where a running kernel makes
+the pad's ordinary USB remote wakeup enough, or Wake-on-LAN from a phone.
+SETUP.md §6 has the measurements and the method.
+
+The **landing in TV mode** is `bin/tv-mode-boot.sh`, and it works whether or not
+the first half does:
+
+```sh
+systemctl --user enable tv-mode-boot.service
+```
+
+A cold boot leaves nothing behind saying which button started it — it is a boot,
+not a resume, so there is no wake source to read and no `/sys` counter that
+survives the power cycle. So the script asks the controller: for two minutes
+after login, any button press means *I am on the couch* and switches to TV mode.
+Boot at the desk, press nothing, and the desktop is untouched. Stick drift is
+ignored; only real buttons count. In practice it is one extra press — Home to
+power on, Home again when the desktop appears — and that second press is the same
+button that opens the Bigscreen overlay once you are there.
 
 ## Installing
 
 ```sh
-./install.sh                          # scripts + launcher into ~/.local
+./install.sh                          # scripts, launcher and unit into ~/.local
 cd plasma-bigscreen && makepkg -si    # the patched Bigscreen package
 cd ../plasma-keyboard && makepkg -si  # the patched on-screen keyboard
 plasmashell --replace                 # reload, from inside the Bigscreen session

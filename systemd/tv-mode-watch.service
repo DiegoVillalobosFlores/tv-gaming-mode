@@ -1,0 +1,17 @@
+[Unit]
+Description=Switch to TV gaming mode on the first click of the TV remote
+# Bound to the graphical session: tv-mode.sh talks to kscreen, PipeWire and
+# plasmashell, none of which exist before it or survive after it.
+PartOf=graphical-session.target
+After=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/tv-mode-watch.sh
+# The script loops over hot-plug on its own; a restart here is for the cases it
+# cannot handle itself, such as evtest not being installed yet.
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=graphical-session.target

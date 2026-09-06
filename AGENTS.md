@@ -10,7 +10,11 @@ Three things that ship together because they are used together:
 
 1. **`bin/tv-mode.sh`** — switches the machine into a 10-foot console (TV as the
    only head, HDMI audio, Plasma Bigscreen shell) and back. `bin/apollo-display.sh`
-   is a related Apollo/Sunshine prep-cmd.
+   is a related Apollo/Sunshine prep-cmd; `bin/tv-mode-watch.sh` triggers the
+   switch from the TV remote and `bin/tv-mode-boot.sh` from the game controller
+   after a boot, both over the shared `bin/tv-mode-input.sh` and each with a user
+   unit under `systemd/`. `udev/93-wolverine-wake.rules` arms the controller's
+   receiver as a wake source.
 2. **`plasma-bigscreen/`** — a patch against upstream Plasma Bigscreen `v6.7.4` that
    lists running apps inline in the home overlay sidebar, plus a PKGBUILD.
 3. **`plasma-keyboard/`** — a patch against upstream `plasma-keyboard` `v6.7.4` that
@@ -60,6 +64,108 @@ Each of these is load-bearing. Read the comment above it before touching it.
   Read that file when debugging; do not conclude "no output means it worked".
 - **State in `$XDG_RUNTIME_DIR`.** Deliberate: a reboot always lands back on the
   desktop. Do not move it somewhere persistent.
+
+## Working on the two watchers
+
+`tv-mode-watch.sh` waits for `BTN_LEFT` on the TV remote's mouse node.
+`tv-mode-boot.sh` waits for any button on the game controller, once, for two
+minutes after login. Both end in `tv-mode.sh on`, and both get their `evtest`
+handling from `tv-mode-input.sh`, which is **sourced, never executed** — it
+defines `wait_for_event` and `require_input_group` and does nothing on its own.
+`install.sh` installs it mode 644 for that reason.
+
+### `wait_for_event`
+
+Three of its choices look like detours:
+
+- **The read loop is fed by a FIFO, not by a pipe from `evtest`.** A pipeline is
+  not finished until *every* member has exited, and `evtest` only notices a
+  closed pipe when it next writes — which is whenever the device is next moved.
+  Rewriting this as `evtest ... | while read` reintroduces exactly the lag the
+  feature exists to remove: the press is seen instantly, then the switch waits.
+  The FIFO lets the loop run in the calling shell so `evtest` can be killed
+  explicitly. `stdbuf -oL` execs `evtest` in place, so the recorded pid is
+  `evtest` itself and the kill lands on it rather than on a wrapper.
+- **`stdbuf -oL`.** `evtest` block-buffers as soon as stdout is not a terminal,
+  so without it the press sits in a 4K buffer instead of arriving.
+- **The timeout kills the writer instead of using `read -t`.** `read -t` is a
+  bashism and these are `#!/bin/sh`. Closing the FIFO's only writer is what ends
+  the loop, so a `sleep`-and-`kill` subshell is the whole mechanism.
+
+Two smaller ones that are easy to undo by tidying:
+
+- **The cleanup is an `if`, not `[ -n "$_timer" ] && …`.** With no timeout there
+  is no timer, and a trailing AND-list whose test fails returns 1 — which `set -e`
+  in the caller reads as `wait_for_event` having failed. `tv-mode-watch.sh` is
+  the caller that passes no timeout, so this breaks the *working* script, not the
+  new one.
+- **The pattern is matched via an unquoted `$_pat` in a `case`.** It expands
+  after the `case` is parsed, so the parentheses in `type 1 (EV_KEY)` are literal
+  rather than closing the branch. Inlining the pattern as a literal will not
+  compile. Keep patterns from starting with `*(`, which some shells read as an
+  extglob.
+
+The node is read, never grabbed — no `EVIOCGRAB` — so the press still reaches
+the session. Reading `/dev/input` needs the `input` group; both scripts check for
+it at startup rather than looping on an unreadable device.
+
+### `tv-mode-boot.sh` specifically
+
+- **It matches `EV_KEY` only, never `EV_ABS`.** Sticks drift. A pad face-down in
+  the sofa reports axis movement all night, and an `EV_ABS` match would put the
+  machine on the TV every single boot.
+- **Any button, not Home.** Home is already claimed by
+  `plasma-remotecontrollers`. Nothing here can see which button caused the
+  power-on anyway — see below.
+- **There is no wake-source detection, and there cannot be.** This is a cold boot
+  out of S5, not a resume: no `/sys/…/power/wakeup_count` survives the power
+  cycle and no resume hook runs, because nothing resumed. The 120s window is the
+  substitute, and "no press" is a legitimate answer (started at the desk), not a
+  failure — hence `Type=oneshot` and no `Restart=`.
+- **`HEAD_WAIT` duplicates `tv-mode.sh`'s head check on purpose.** `tv-mode.sh`
+  refuses outright when the TV is absent, which is correct for a deliberate
+  switch and wrong for a TV that was switched on at the same moment as the PC and
+  is still negotiating HDMI. The script waits, then lets `tv-mode.sh` make the
+  real check. `HEAD` is duplicated at the top for the same reason
+  `apollo-display.sh` duplicates it.
+
+### The S5 wake itself
+
+**Settled by measurement: S5 wake from the Home button does not work on this
+hardware, and no Linux change will alter that.** Do not reopen it. ASRock's
+`USB Keyboard/Remote Power On` watches for HID keyboard reports; the Wolverine
+receiver enumerates a keyboard interface (`-if01-event-kbd`) but never emits on
+it — a 90-second capture across all three of its nodes gave 196 joystick events
+and zero keyboard events. Home is `BTN_MODE` on the joystick node only.
+
+Two hypotheses that sound right and are wrong, both already tested:
+
+- *"The receiver must be on a CPU-attached port."* False here. Every USB
+  controller has an enabled ACPI wake node, chipset included (`grep XH
+  /proc/acpi/wakeup`). Also, the CPU's USB 2.0 controller `XHC2`
+  (`0000:79:00.0`) has one port, wired to the internal LED header — it reaches
+  no rear socket, so "move it to the rear USB 2.0 pair to get on the CPU" is
+  doubly wrong.
+- *"The udev rule is not applying."* It applies. Check before doubting:
+  `bmAttributes=a0` and `power/wakeup=enabled` on the `1532:0a4c` device.
+
+`udev/93-wolverine-wake.rules` is kept because it is correct and costs nothing,
+and because it is what makes **suspend (S3)** work — there a kernel is running,
+so ordinary USB remote wakeup resumes on any button and no keyboard interface is
+needed. Two things about the rule are non-obvious: the kernel leaves USB remote
+wakeup off for everything but the boot keyboard, and Linux arms the ACPI wake
+bits *on the way down*, so the attribute has to already be set at shutdown.
+Setting it from a login script would be too late.
+
+If a machine is not waking, the answer is S3 or Wake-on-LAN, not more Linux
+configuration.
+
+### Enabling
+
+The units are installed by `install.sh` but **not enabled**. Do not enable
+either, or start a watcher, unless the user asks: they arm a remote or a
+controller to blank the user's monitors, and they invoke `tv-mode.sh on` — which
+the rest of this file explains you should not run uninvited.
 
 ## Working on the Bigscreen patch
 
@@ -143,6 +249,15 @@ not a broken patch.
 
 ### Load-bearing details
 
+- **The standdown while a game holds the pad.** `scanForOtherReaders()` walks
+  `/proc/*/fd` for another process holding our controller's `event*`/`js*` nodes;
+  while one does, the keyboard neither summons nor grabs. Two halves are both
+  load-bearing: without the scan, X pops the keyboard over a game *and* the grab
+  steals the pad from it; without the `inputInfrastructure()` ignore list the scan
+  always matches, because `plasma-remotecontrollers`, Bigscreen's inputhandler and
+  the Steam client each hold every pad open for the whole session. Verified on this
+  machine: with Monster Hunter Wilds running, `winedevice.exe` is the only
+  non-infrastructure holder. Do not add `gamescope` or a game launcher to the list.
 - **The grab excludes `BTN_MODE`.** `EVIOCGRAB` is all-or-nothing, so while the panel
   is up it would swallow the controller's Home button — the one
   `plasma-remotecontrollers` turns into the Bigscreen home-overlay key. The grab is

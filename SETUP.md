@@ -31,6 +31,7 @@ Optional:
 - **`plasma-remotecontrollers`** (AUR: `plasma-remotecontrollers-git`) — gamepad and
   CEC input. Needed for the controller Home button to reach Plasma at all.
 - **`apollo`**/**`sunshine`** — only if you want `apollo-display.sh`.
+- **`evtest`** — only if you want the TV remote to arm the switch itself (§3).
 
 ---
 
@@ -109,6 +110,69 @@ nothing useful is printed to your terminal.
 
 System Settings → Keyboard → Shortcuts → Add Command, pointing at
 `~/.local/bin/tv-mode.sh toggle`.
+
+### Optional: switch on the first click of the TV remote
+
+`install.sh` also drops `tv-mode-watch.sh` and a user unit in place. Enabling the
+unit makes the first click of the TV remote's left mouse button switch the
+machine over, so the couch needs no keyboard:
+
+```sh
+systemctl --user daemon-reload
+systemctl --user enable --now tv-mode-watch.service
+systemctl --user status tv-mode-watch.service
+```
+
+It is installed but not enabled by default — it hands a remote the power to
+blank your monitors, so turning it on should be a deliberate act.
+
+Two things have to be true first:
+
+```sh
+pacman -Qq evtest                       # the watcher reads the device with it
+id -nG | tr ' ' '\n' | grep -x input    # reading /dev/input needs this group
+```
+
+`usermod -aG input $USER` and a re-login if the group is missing. The watcher
+refuses to start rather than looping on a device it cannot read.
+
+The device it watches is the hardware constant at the top of the script:
+
+```sh
+DEV=/dev/input/by-id/usb-123_COM_Smart_Control-if03-event-mouse
+```
+
+For a different remote, find yours and confirm which node carries the pointer:
+
+```sh
+ls /dev/input/by-id/                    # by-id, never eventN - the number moves
+sudo libinput debug-events --show-keycodes    # click, see which device speaks
+evtest /dev/input/by-id/<yours>         # BTN_LEFT is code 272
+```
+
+A combo device presents several nodes; the one you want reports `EV_REL` and
+`BTN_LEFT`, and its by-id name usually ends in `-event-mouse`.
+
+Debugging: the watcher logs to the journal, not to `tv-mode.log`.
+
+```sh
+journalctl --user -u tv-mode-watch.service -f
+```
+
+Both this and `tv-mode-boot.sh` below share their `evtest` plumbing through
+`tv-mode-input.sh`, which `install.sh` drops alongside them. It is sourced, not
+run, so it is installed non-executable.
+
+### Optional: land a controller-started boot in TV mode
+
+```sh
+systemctl --user enable tv-mode-boot.service
+```
+
+A press on the game controller in the first two minutes after login switches the
+machine over, so a boot started from the couch ends up on the TV and a boot
+started at the desk does not. Powering the machine on with the controller in the
+first place is a BIOS matter — both halves are in §6.
 
 ---
 
@@ -201,6 +265,31 @@ group (`id -nG | grep input`).
 Copied from the Steam Deck's on-screen keyboard, so it needs no learning. X does
 double duty because the two states never overlap.
 
+### While a game is running
+
+The keyboard stands down completely — no summoning, no grabbing, no navigation —
+whenever another process has the controller's `/dev/input` nodes open. Check who
+does:
+
+```sh
+for p in /proc/[0-9]*; do
+  for f in $p/fd/*; do
+    case "$(readlink "$f" 2>/dev/null)" in
+      /dev/input/event*|/dev/input/js*) echo "$(cat $p/comm) -> $(readlink $f)";;
+    esac
+  done
+done | sort -u
+```
+
+Four names are ignored by that check, because they hold every pad open for the
+whole session and counting them would disable the feature permanently:
+`plasma-remoteco`, `plasma-bigscree`, `steam`, `steamwebhelper` (they are
+`/proc/<pid>/comm`, which the kernel truncates to 15 characters). Anything else —
+including a game launched through Steam, which is its own process — means hands
+off. If your setup has another always-resident controller reader, add it to
+`inputInfrastructure()` in `src/gamepadlistener.cpp` or the keyboard will never
+activate.
+
 ### Settings
 
 System Settings → Plasma Keyboard, or `~/.config/plasmakeyboardrc`:
@@ -289,6 +378,182 @@ keep working while it is on screen.
 Install `libcec` and the TV's own remote drives the same shortcuts over HDMI. If input
 is dead, check `plasma-remotecontrollers` is running before suspecting the TV.
 
+### Powering the machine on from the couch
+
+Pressing **Home** on the controller to start a machine that is fully off, and
+landing in TV mode, is two independent halves. The second works on its own; the
+first is firmware and may not be possible on your board at all.
+
+#### Half one — the power-on (firmware)
+
+**On this machine, measured: this does not work, and cannot be made to.** The
+reasoning below is kept because the *method* transfers to other receivers; the
+verdict is specific to the Wolverine V3 Pro's 2.4GHz dongle.
+
+Linux has no part in it. In S5 there is no kernel running, so waking the board is
+entirely up to the BIOS and to whether the port still has +5VSB. ASRock's feature
+is called `USB Keyboard/Remote Power On`, and the name is literal: the firmware
+watches for **HID keyboard reports**. A gamepad's reports are not keyboard
+reports and the firmware ignores them.
+
+The Wolverine's receiver looked like it might slip through, because it enumerates
+a keyboard interface next to the pad:
+
+```sh
+ls /dev/input/by-id/ | grep -i wolverine
+# ...-if01-event-kbd    <- a full keyboard, as far as the descriptor goes
+# ...-event-joystick    <- the xpad node the session reads
+```
+
+That interface is real — it opens, and it advertises the whole `KEY_A`..`KEY_Z`
+range. The question is whether any button on the pad ever makes it *emit*
+something. Watch all of its nodes at once and press every button:
+
+```sh
+for n in if01-event-kbd event-joystick if01-event-mouse; do
+  stdbuf -oL evtest /dev/input/by-id/usb-Razer_Razer_Wolverine_V3_Pro_for_Xbox_2.4-$n \
+    2>/dev/null | stdbuf -oL grep 'Event:' | sed "s|^|$n: |" &
+done
+# press Home, A, the D-pad...; then: pkill -x evtest
+```
+
+The answer for this receiver is unambiguous. Over a 90-second capture with Home
+and other buttons pressed repeatedly:
+
+| Node | Events |
+| --- | --- |
+| `-event-joystick` | 196 — Home arrives as `code 316 (BTN_MODE)` |
+| `-if01-event-kbd` | **0** |
+| `-if01-event-mouse` | 0 |
+
+The keyboard interface is enumerated but permanently silent. So there is nothing
+for the firmware to see in S5, whatever the BIOS is set to and whichever port the
+receiver is in. The dongle presumably exposes it for Synapse key-remapping, which
+is configured from Windows and stored on the pad.
+
+**Two things that are *not* the problem** — both worth knowing, because both are
+plausible-sounding dead ends:
+
+*The port does not need to be CPU-attached.* This is commonly repeated and is
+false on this board. Every USB controller, chipset ones included, has an ACPI
+wake node and it is enabled:
+
+```sh
+grep XH /proc/acpi/wakeup
+# XHC0  S4  *enabled  pci:0000:78:00.3   CPU
+# XHC1  S4  *enabled  pci:0000:78:00.4   CPU
+# XHC2  S4  *enabled  pci:0000:79:00.0   CPU, internal header only (1 port)
+# XH00  S4  *enabled  pci:0000:10:00.0   chipset
+# XH00  S4  *enabled  pci:0000:12:00.0   chipset
+```
+
+Note also that `XHC2` — the CPU's USB 2.0 controller, the one an earlier version
+of this document recommended as "the classic wake port" — has `maxchild` of 1 and
+is occupied by the internal ASRock LED controller. It reaches no rear socket at
+all. The rear USB 2.0 pair is chipset surplus: compare each root hub's 2.0 port
+count against its 3.x sibling's.
+
+*The OS side is already correct.* `udev/93-wolverine-wake.rules` does its job —
+verify rather than assume:
+
+```sh
+for d in /sys/bus/usb/devices/*/; do
+  [ "$(cat "$d/idProduct" 2>/dev/null)" = 0a4c ] || continue
+  echo "$d wakeup=$(cat "$d/power/wakeup") bmAttributes=$(cat "$d/bmAttributes")"
+done
+# .../10-4/ wakeup=enabled bmAttributes=a0     <- a0 = remote wakeup supported
+```
+
+The one hard port exclusion from the manual still stands if you try another
+device: *"Ultra USB Power is supported on USB32_34 ports. ACPI wake-up function
+is not supported on USB32_34 ports."* That is rear panel item 2, the three USB
+3.2 Gen1 ports.
+
+**If you want to try anyway**, or with a receiver whose keyboard interface does
+emit, set these under *Advanced → ACPI Configuration*:
+
+| Setting | Set it to | Why |
+| --- | --- | --- |
+| `Deep Sleep` | **Disabled** | Any other value cuts +5VSB in S5, so the receiver is unpowered and nothing can wake anything. This one is non-negotiable. |
+| `USB Keyboard/Remote Power On` | **Enabled** | The actual feature. Named `PS/2 or USB Keyboard Power On` on some BIOS revisions. |
+| `USB Power Delivery in Soft Off State (S5)` | **Enabled** | Keeps the ports live so the receiver stays associated. |
+| `ErP Ready` (under *Advanced → Onboard Devices*) | **Disabled** | ErP is the EU standby-power mode; it forces everything above off. |
+
+The board manual documents the hardware only — the BIOS options live in ASRock's
+separate UEFI guide, so the exact wording above may differ by a word or two on
+your revision (this machine is on 4.20).
+
+**The fallbacks**, in increasing order of effort:
+
+- **Suspend (S3) instead of S5.** A kernel *is* running in S3, so the receiver's
+  USB remote wakeup — already armed, `bmAttributes=a0` — can resume the machine
+  on any button, no keyboard interface needed. This is the path that actually
+  works with this hardware, at the cost of the machine drawing standby power.
+- **Wake-on-LAN** from a phone. `enp8s0` currently has `power/wakeup` disabled;
+  `sudo ethtool enp8s0` will say whether the NIC supports `g` (magic packet).
+- **A second small device in the wake port** that does emit keyboard reports — a
+  cheap USB remote or a media-key keypad — used only to power the machine on.
+
+#### Half two — landing in TV mode (the session)
+
+```sh
+sudo install -m 644 udev/93-wolverine-wake.rules /etc/udev/rules.d/
+sudo udevadm control --reload
+systemctl --user enable tv-mode-boot.service
+```
+
+The udev rule flips the receiver's `power/wakeup` to `enabled`. The kernel leaves
+USB remote wakeup off for everything but the boot keyboard, and Linux arms the
+ACPI GPE for wakeup-enabled devices *on the way down*, so the bit has to be set
+before the shutdown. Check it took:
+
+```sh
+for d in /sys/bus/usb/devices/*/; do
+  [ "$(cat "$d/power/wakeup" 2>/dev/null)" = enabled ] &&
+    echo "$(basename "$d")  $(cat "$d/product" 2>/dev/null)"
+done
+# ...  Razer Wolverine V3 Pro for Xbox 2.4
+```
+
+`tv-mode-boot.sh` handles the rest. A cold boot leaves nothing behind that says
+which button started it — this is a fresh boot, not a resume, so there is no wake
+source to read and no `/sys` counter that outlives the power cycle. So the script
+asks the controller instead: for **120 seconds after login**, any button press on
+the pad switches to TV mode. Start the machine at the desk and press nothing, and
+the desktop is left alone.
+
+In practice that is one extra press — Home to power on, Home again when the
+desktop appears — and the second press is the same button that opens the
+Bigscreen overlay once you are there.
+
+Constants at the top of the script:
+
+| | |
+| --- | --- |
+| `DEV` | the pad's `-event-joystick` by-id node |
+| `WINDOW` | 120s; how long a press counts as "I am on the couch" |
+| `PLUG_WAIT` | 30s; how long to wait for the receiver to enumerate before giving up |
+| `HEAD_WAIT` | 45s; how long to wait for the TV to reach the bus after the press |
+
+`HEAD_WAIT` exists because a TV switched on at the same moment as the PC is still
+negotiating HDMI while the desktop is already up. `tv-mode.sh` refuses outright
+when the head is absent, which is right for a deliberate switch and wrong here.
+
+Debugging: it logs to the journal, not to `tv-mode.log`.
+
+```sh
+journalctl --user -u tv-mode-boot.service -b
+```
+
+Autologin has to be on, or the boot stops at a login screen the controller
+cannot type into. On this machine that is `/etc/plasmalogin.conf`:
+
+```ini
+[Autologin]
+User=diegov
+Session=plasma.desktop
+```
+
 ---
 
 ## 7. Streaming (optional)
@@ -327,8 +592,16 @@ state through their own file, and interleaving them will restore the wrong layou
 | Controller Home stops opening the Bigscreen overlay while typing | The grab exclusion for `BTN_MODE` was removed. It is what keeps Home reaching `plasma-remotecontrollers` while the panel is up. |
 | L2/R2 do nothing on the keyboard | Trigger detection keys off `ABS_RX` — a pad with no right stick reports its triggers where a right stick would be, and they are skipped. Check `evtest`. |
 | Keyboard pops back open right after closing it | Upstream re-shows it on any surrounding-text update. The patch suppresses that after a deliberate close; if it returns, `m_userDismissed` in `inputlisteneritem.cpp` is no longer being set or is being cleared too eagerly. |
-| Keyboard appears mid-game on an X press | The summon path checks KWin's `activeClientSupportsTextInput` first, but a game that binds the text-input protocol can still report true. Turn off "Game controller navigation" for that session. |
+| Keyboard appears mid-game on an X press | The game is not being seen as a controller reader. Run the scan in §5 while it is running: if it does not appear, it reads the pad through something other than an evdev/js node, and only the weaker `activeClientSupportsTextInput` guard is left. |
+| Keyboard never activates, even on the desktop | Something always-resident is holding the pad and is not on the ignore list in §5. Run the scan with no game running; whatever shows up needs adding to `inputInfrastructure()`. |
+| Controller stops working in a game while a text field is focused | Should no longer happen — the grab is suppressed while a game holds the pad. If it does, the standdown check is failing to see that game. |
 | Stuck in TV mode after a crash | State lives in `$XDG_RUNTIME_DIR`, so a reboot always lands back on the desktop. Or `tv-mode.sh off`. |
+| Home does not power the machine on | Expected on this hardware — the receiver's keyboard interface emits nothing, so the firmware has nothing to see in S5. Confirm with the three-node `evtest` capture in §6 before chasing BIOS settings or ports. Use suspend (S3) or Wake-on-LAN instead. |
+| Controller press does not switch to TV mode at boot | First check the receiver is actually enumerated: `lsusb | grep 1532:0a4c`. If it is absent, `tv-mode-boot.service` exits after its 30s `PLUG_WAIT` having done nothing, and the journal shows a start and a finish exactly 30 seconds apart. |
+| Machine powers on but stays on the desktop | `tv-mode-boot.service` is not enabled, no button was pressed inside its 120s window, or the receiver took longer than `PLUG_WAIT` to enumerate. `journalctl --user -u tv-mode-boot.service -b`. |
+| Every boot lands in TV mode | Something is pressing the pad — a controller wedged in the sofa reporting a stuck button. `evtest` the joystick node. Axis drift is already ignored; only `EV_KEY` counts. |
+| Boot lands in TV mode but the TV is blank | The TV reached the bus after `HEAD_WAIT` expired, so `tv-mode.sh` ran against a head that was not there yet. Raise it, or turn the TV on first. |
+| Boot stops at a login screen | Autologin is off, and the controller cannot type a password. See the end of §6. |
 
 ---
 

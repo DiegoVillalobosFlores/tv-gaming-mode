@@ -1,0 +1,14 @@
+# Arm the Razer Wolverine V3 Pro's 2.4GHz receiver as a system wake source.
+#
+# The kernel leaves USB remote wakeup disabled for everything except the boot
+# keyboard, so the receiver ships with power/wakeup "disabled" even though it
+# advertises the capability (bmAttributes 0xa0, "Remote Wakeup"). This is the
+# half of "power on with the Home button" that lives in the OS: Linux arms the
+# matching ACPI GPE for wakeup-enabled devices on the way down, so the bit has
+# to be set before the shutdown, not after. The other half is firmware - see
+# SETUP.md, and note that the receiver has to be on a CPU-attached port for the
+# board to wake from S5 at all.
+#
+# Install to /etc/udev/rules.d/ as root; udev applies it on the next replug or
+# on "udevadm trigger --action=add --subsystem-match=usb".
+ACTION=="add", SUBSYSTEM=="usb", ATTR{idVendor}=="1532", ATTR{idProduct}=="0a4c", ATTR{power/wakeup}="enabled"

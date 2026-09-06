@@ -1,0 +1,16 @@
+[Unit]
+Description=Switch to TV gaming mode when the boot was started from the controller
+# Bound to the graphical session: tv-mode.sh talks to kscreen, PipeWire and
+# plasmashell, none of which exist before it or survive after it.
+PartOf=graphical-session.target
+After=graphical-session.target
+
+[Service]
+# One shot per login. The script's own window closes after a couple of minutes
+# and there is nothing to retry: no press inside it means the machine was
+# started at the desk, which is an answer and not a failure.
+Type=oneshot
+ExecStart=%h/.local/bin/tv-mode-boot.sh
+
+[Install]
+WantedBy=graphical-session.target
