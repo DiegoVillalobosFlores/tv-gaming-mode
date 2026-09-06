@@ -3,7 +3,7 @@
 pkgname=plasma-bigscreen
 pkgver=6.7.4
 _dirver=$(echo $pkgver | cut -d. -f1-3)
-pkgrel=1.tasks1
+pkgrel=1.9
 pkgdesc='Plasma shell for TVs (patched: running apps listed in the home overlay sidebar)'
 arch=(x86_64)
 url='https://plasma-bigscreen.org/'
