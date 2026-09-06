@@ -17,6 +17,7 @@ export DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-unix:path=$XDG_RUNT
 
 STATE="$XDG_RUNTIME_DIR/tv-mode.displays.json"
 SINKFILE="$XDG_RUNTIME_DIR/tv-mode.sink"
+MANGOFILE="$XDG_RUNTIME_DIR/tv-mode.mangohud"
 exec 2>>"$XDG_RUNTIME_DIR/tv-mode.log"
 
 note() { notify-send -a "TV mode" -i video-television "TV mode" "$1" 2>/dev/null || true; }
@@ -83,6 +84,36 @@ displays_restore() {
   rm -f "$STATE"
 }
 
+# --- MangoHud ----------------------------------------------------------
+# Disable the overlay outright rather than hiding it: MangoHud's own
+# no_display=1 still loads the Vulkan layer into every game. The layer's
+# disable_environment (DISABLE_MANGOHUD=1, see the implicit_layer.d json) keeps
+# it from being loaded at all, which is what we want on the TV.
+#
+# It has to go into the systemd user manager *and* the D-Bus activation
+# environment, because that is what Bigscreen's app launches inherit from.
+# Already-running games keep their HUD; a Vulkan layer cannot be unloaded.
+mangohud_disable() {
+  systemctl --user show-environment | sed -n 's/^DISABLE_MANGOHUD=//p' > "$MANGOFILE"
+  # One call sets it for both D-Bus-activated and systemd-user-started children.
+  dbus-update-activation-environment --systemd DISABLE_MANGOHUD=1 >/dev/null 2>&1 ||
+    systemctl --user set-environment DISABLE_MANGOHUD=1 || true
+}
+
+mangohud_restore() {
+  [ -f "$MANGOFILE" ] || return 0
+  # No previous value means the variable was unset; the activation environment
+  # has no unset, so blank it there - the layer only disables itself on "1".
+  PREV=$(cat "$MANGOFILE")
+  dbus-update-activation-environment --systemd "DISABLE_MANGOHUD=$PREV" >/dev/null 2>&1 || true
+  if [ -n "$PREV" ]; then
+    systemctl --user set-environment "DISABLE_MANGOHUD=$PREV" || true
+  else
+    systemctl --user unset-environment DISABLE_MANGOHUD || true
+  fi
+  rm -f "$MANGOFILE"
+}
+
 # --- shell -------------------------------------------------------------
 # Swapping the shell alone is not enough: plasma-bigscreen-inputhandler quits
 # immediately unless PLASMA_PLATFORM=mediacenter, so the TV remote (CEC) is dead
@@ -128,11 +159,13 @@ case "${1:-toggle}" in
 on)
   displays_to_tv
   audio_to_hdmi
+  mangohud_disable
   shell_to_tv
-  note "LG TV only, HDMI audio, Bigscreen shell"
+  note "LG TV only, HDMI audio, MangoHud off, Bigscreen shell"
   ;;
 off)
   shell_restore
+  mangohud_restore
   audio_restore
   displays_restore
   note "Back to the desktop"

@@ -49,6 +49,11 @@ Each of these is load-bearing. Read the comment above it before touching it.
   The bare form leaves the TV remote dead: `plasma-bigscreen-inputhandler` exits
   immediately unless `PLASMA_PLATFORM=mediacenter`, which swap-session sets by
   sourcing `plasma-bigscreen-common-env`.
+- **`DISABLE_MANGOHUD=1`, not MangoHud's `no_display`.** `no_display=1` only hides
+  the overlay; the Vulkan layer is still loaded into every game. The env var is
+  the layer's own `disable_environment`, so the layer never loads. It is pushed
+  through `dbus-update-activation-environment --systemd` because that is what
+  Bigscreen's app launches inherit. Games already running keep their HUD.
 - **Modes addressed by name, never by id.** kscreen renumbers mode ids between runs,
   so a saved id restores the wrong mode.
 - **`exec 2>>"$XDG_RUNTIME_DIR/tv-mode.log"`.** Errors are not on your terminal.
