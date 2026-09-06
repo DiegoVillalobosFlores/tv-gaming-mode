@@ -22,10 +22,10 @@ index 9307b91..3f495cb 100644
                      window.settingsRequested();
                      window.hideOverlay();
 diff --git a/containments/homescreen/package/contents/ui/homeoverlay/MainColumn.qml b/containments/homescreen/package/contents/ui/homeoverlay/MainColumn.qml
-index b055c3e..d52f59a 100644
+index b055c3e..b8ba2e8 100644
 --- a/containments/homescreen/package/contents/ui/homeoverlay/MainColumn.qml
 +++ b/containments/homescreen/package/contents/ui/homeoverlay/MainColumn.qml
-@@ -18,16 +18,22 @@ ColumnLayout {
+@@ -18,16 +18,23 @@ ColumnLayout {
      property bool showTasksButton
      property bool closeControllerSuppressState
  
@@ -43,20 +43,33 @@ index b055c3e..d52f59a 100644
  
      function focusTasks() {
 -        if (tasksButton.visible) {
-+        if (tasksRepeater.count > 0) {
-+            tasksRepeater.itemAt(0).forceActiveFocus();
++        if (taskList.count > 0) {
++            taskList.currentIndex = 0;
++            taskList.forceActiveFocus();
 +        } else if (tasksButton.visible) {
              tasksButton.forceActiveFocus();
          } else {
              searchButton.forceActiveFocus();
-@@ -139,7 +145,13 @@ ColumnLayout {
+@@ -36,6 +43,10 @@ ColumnLayout {
+ 
+     onVisibleChanged: {
+         if (visible) {
++            // Open on Home with the app list at the top every time, rather than
++            // wherever the list happened to be left last time it was open.
++            taskList.currentIndex = 0;
++            taskList.positionViewAtBeginning();
+             homeButton.forceActiveFocus();
+ 
+             // Don't have controller input suppressed while the home overlay is open, so user can interact
+@@ -139,7 +150,14 @@ ColumnLayout {
                  id: searchButton
                  Layout.fillWidth: true
  
 -                KeyNavigation.down: tasksButton.downItem
 +                Keys.onDownPressed: {
-+                    if (tasksRepeater.count > 0) {
-+                        tasksRepeater.itemAt(0).forceActiveFocus();
++                    if (taskList.count > 0) {
++                        taskList.currentIndex = 0;
++                        taskList.forceActiveFocus();
 +                    } else {
 +                        tasksButton.downItem.forceActiveFocus();
 +                    }
@@ -64,17 +77,59 @@ index b055c3e..d52f59a 100644
  
                  text: i18n("Search")
                  icon.name: "system-search-symbolic"
-@@ -148,6 +160,45 @@ ColumnLayout {
+@@ -148,6 +166,73 @@ ColumnLayout {
                  }
              }
  
-+            Repeater {
-+                id: tasksRepeater
++            // The running apps. Grows with the list until it would push the
++            // toggles below off the sidebar, then stops growing and scrolls:
++            // fillHeight claims slack, maximumHeight caps it at its own content,
++            // and minimumHeight keeps a few rows visible when space runs out.
++            ListView {
++                id: taskList
 +                model: root.tasksModel
++
++                Layout.fillWidth: true
++                Layout.fillHeight: true
++                Layout.preferredHeight: contentHeight
++                Layout.maximumHeight: contentHeight
++                Layout.minimumHeight: Math.min(contentHeight, Kirigami.Units.gridUnit * 12)
++
++                clip: true
++                boundsBehavior: Flickable.StopAtBounds
++                // ListView keeps currentItem in view by itself, which is what
++                // scrolls the sidebar as the D-pad walks past the visible rows.
++                keyNavigationEnabled: true
++                keyNavigationWraps: false
++                highlightMoveDuration: Kirigami.Units.shortDuration
++
++                QQC2.ScrollBar.vertical: QQC2.ScrollBar {
++                    policy: taskList.contentHeight > taskList.height
++                        ? QQC2.ScrollBar.AlwaysOn : QQC2.ScrollBar.AlwaysOff
++                }
++
++                // Runs before ListView's own key handling, so leaving the list at
++                // either end is ours and everything in between stays the view's.
++                Keys.onUpPressed: (event) => {
++                    if (taskList.currentIndex <= 0) {
++                        searchButton.forceActiveFocus();
++                        event.accepted = true;
++                    } else {
++                        event.accepted = false;
++                    }
++                }
++                Keys.onDownPressed: (event) => {
++                    if (taskList.currentIndex >= taskList.count - 1) {
++                        tasksButton.downItem.forceActiveFocus();
++                        event.accepted = true;
++                    } else {
++                        event.accepted = false;
++                    }
++                }
 +
 +                delegate: Bigscreen.ButtonDelegate {
 +                    id: taskDelegate
-+                    Layout.fillWidth: true
++                    width: taskList.width
 +
 +                    readonly property int taskIndex: index
 +                    readonly property var taskIcon: model.decoration
@@ -86,22 +141,8 @@ index b055c3e..d52f59a 100644
 +                        source: taskDelegate.taskIcon
 +                    }
 +
-+                    Keys.onUpPressed: {
-+                        if (taskDelegate.taskIndex === 0) {
-+                            searchButton.forceActiveFocus();
-+                        } else {
-+                            tasksRepeater.itemAt(taskDelegate.taskIndex - 1).forceActiveFocus();
-+                        }
-+                    }
-+                    Keys.onDownPressed: {
-+                        if (taskDelegate.taskIndex === tasksRepeater.count - 1) {
-+                            tasksButton.downItem.forceActiveFocus();
-+                        } else {
-+                            tasksRepeater.itemAt(taskDelegate.taskIndex + 1).forceActiveFocus();
-+                        }
-+                    }
-+
 +                    onClicked: {
++                        taskList.currentIndex = taskDelegate.taskIndex;
 +                        root.taskActivationRequested(taskDelegate.taskIndex);
 +                    }
 +                }
@@ -110,14 +151,15 @@ index b055c3e..d52f59a 100644
              Bigscreen.ButtonDelegate {
                  id: tasksButton
                  Layout.fillWidth: true
-@@ -155,10 +206,16 @@ ColumnLayout {
+@@ -155,10 +240,17 @@ ColumnLayout {
                  property Item downItem: visible ? tasksButton : controllerButton.downItem
                  property Item upItem: visible ? tasksButton : searchButton
                  KeyNavigation.down: controllerButton.downItem
 -                KeyNavigation.up: searchButton
 +                Keys.onUpPressed: {
-+                    if (tasksRepeater.count > 0) {
-+                        tasksRepeater.itemAt(tasksRepeater.count - 1).forceActiveFocus();
++                    if (taskList.count > 0) {
++                        taskList.currentIndex = taskList.count - 1;
++                        taskList.forceActiveFocus();
 +                    } else {
 +                        searchButton.forceActiveFocus();
 +                    }

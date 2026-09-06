@@ -75,17 +75,34 @@ The patch touches three files:
 - `TasksView.qml` — exposes its existing `TaskManager.TasksModel` as
   `taskManagerModel`, adds `activateTask(index)`. **Do not instantiate a second
   `TasksModel`** for the sidebar; one model, shared.
-- `MainColumn.qml` — a `Repeater` renders each running app as a `ButtonDelegate`.
+- `MainColumn.qml` — a `ListView` renders each running app as a `ButtonDelegate`.
   Icons come from `model.decoration` through the delegate's `leading` slot, *not*
   `icon.name`: `ButtonDelegate` binds `source: root.icon.name`, a string, so a
   `QIcon` from the model silently renders nothing there.
 - `HomeOverlayWindow.qml` — wiring only.
 
-D-pad navigation between the shortcuts is done with explicit `Keys.onUpPressed` /
-`Keys.onDownPressed` handlers calling `tasksRepeater.itemAt(...)`, deliberately not
-`KeyNavigation` bindings: `itemAt()` is not a bindable property, so a binding
-evaluates to a stale or null item when apps open and close. Keep navigation
-evaluated at keypress time.
+The app list is a `ListView`, not a `Repeater`, and the reasons are load-bearing:
+
+- **It has to scroll.** With enough windows open a `Repeater` in the `ColumnLayout`
+  grows without limit and pushes Controller / Keyboard / Settings off the bottom of
+  the sidebar. The sizing that bounds it is a set: `Layout.fillHeight` claims slack,
+  `Layout.maximumHeight: contentHeight` stops it growing past its own content so the
+  spacer keeps the toggles at the bottom, and `Layout.minimumHeight` keeps a few rows
+  visible when space runs out. Removing any one of the three breaks a different case.
+- **`AbstractDelegate` is built for it.** It walks up the parent chain for a
+  `Flickable` and derives `isCurrent` from `listView.currentIndex && activeFocus`, so
+  delegates highlight correctly inside a view and `ListView` scrolls the selection
+  into sight on its own.
+- **Do not navigate by grabbing sibling items.** `itemAtIndex()` returns null for
+  rows the view has not realised, so walking to `index ± 1` breaks the moment the
+  list is long enough to scroll — which is exactly when it matters. Internal movement
+  belongs to `keyNavigationEnabled`; only the two ends are ours, intercepted by
+  `Keys.onUpPressed` / `onDownPressed` on the view (attached `Keys` run before the
+  view's own handler, so setting `event.accepted = false` hands movement back to it).
+
+`onVisibleChanged` resets `currentIndex` to 0 and calls `positionViewAtBeginning()`
+before focusing Home, so the overlay always opens at the top of the list instead of
+wherever it was left.
 
 After a rebuild, verification is:
 

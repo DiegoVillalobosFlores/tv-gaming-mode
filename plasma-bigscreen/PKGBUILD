@@ -20,7 +20,7 @@ options=(!debug)
 source=(https://download.kde.org/stable/plasma/$_dirver/$pkgname-$pkgver.tar.xz
         0001-homescreen-list-running-apps-in-home-overlay.patch)
 sha256sums=('5fb76e3777ce03bd4ded119fb169efeb308a38f43dec009197158abec134441c'
-            '4f644377503c081f52131a407ec51aefa45a00e021b206ed13c72fc6ca2aad75')
+            'fb36fb6c9329548cb3c22ab7c8a0c29ea4bd4830524ac0bd6fbb735f71a9c042')
 
 prepare() {
   patch -d $pkgname-$pkgver -p1 < 0001-homescreen-list-running-apps-in-home-overlay.patch

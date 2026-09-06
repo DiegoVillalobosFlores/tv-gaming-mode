@@ -73,11 +73,14 @@ Home then one press. Against upstream `v6.7.4`, 3 files:
 
 - **`TasksView.qml`** — exposes its existing `TaskManager.TasksModel` as
   `taskManagerModel` and adds `activateTask(index)`. No second model is created.
-- **`MainColumn.qml`** — a `Repeater` over that model renders each running app as
+- **`MainColumn.qml`** — a `ListView` over that model renders each running app as
   a `ButtonDelegate` (icon from `model.decoration` via the delegate's `leading`
   slot, label from `model.AppName`), between **Search** and the overview button.
-  D-pad chaining is explicit — `Search → app 1 … app N → All Open Apps →
-  Controller` — so it stays correct as apps open and close.
+  The list grows with the apps until it would push the toggles below off the
+  sidebar, then stops and scrolls, so the settings never get shoved off-screen.
+  D-pad order is `Search → app 1 … app N → All Open Apps → Controller`; the view
+  scrolls to follow the selection, and opening the overlay always lands on
+  **Home** with the list back at the top.
 - **`HomeOverlayWindow.qml`** — wires the model in; activating a shortcut raises
   the window and closes the overlay.
 
