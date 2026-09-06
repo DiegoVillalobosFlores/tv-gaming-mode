@@ -215,10 +215,10 @@ index bdf0948..c9b667e 100644
      Qt::DBus
 diff --git a/src/gamepadlistener.cpp b/src/gamepadlistener.cpp
 new file mode 100644
-index 0000000..c2ac93f
+index 0000000..de4dede
 --- /dev/null
 +++ b/src/gamepadlistener.cpp
-@@ -0,0 +1,572 @@
+@@ -0,0 +1,695 @@
 +/*
 +    SPDX-FileCopyrightText: 2026 Diego Villalobos <diegovillalobos397@gmail.com>
 +
@@ -228,8 +228,12 @@ index 0000000..c2ac93f
 +#include "gamepadlistener.h"
 +#include "logging.h"
 +
++#include <QCoreApplication>
 +#include <QDir>
++#include <QFile>
 +#include <QFileSystemWatcher>
++#include <QFileInfo>
++#include <QSet>
 +#include <QSocketNotifier>
 +
 +#include <libevdev/libevdev.h>
@@ -262,6 +266,27 @@ index 0000000..c2ac93f
 +
 +// Analog triggers count as pressed above this fraction of their range.
 +constexpr double TRIGGER_THRESHOLD = 0.6;
++
++// How long a "is a game holding the pad?" answer is reused before re-walking
++// /proc. Long enough to keep key repeat cheap, short enough that alt-tabbing out
++// of a game feels immediate.
++constexpr int CLAIM_CACHE_MS = 500;
++
++// Processes that hold controllers open for the whole session and are not "an
++// app using the controller" in any meaningful sense: the session's own input
++// plumbing, and the Steam client, which keeps every pad open while it runs. A
++// game launched *through* Steam is a separate process and is not on this list.
++// Names are /proc/<pid>/comm, which the kernel truncates to 15 characters.
++const QSet<QString> &inputInfrastructure()
++{
++    static const QSet<QString> names = {
++        QStringLiteral("plasma-remoteco"), // plasma-remotecontrollers
++        QStringLiteral("plasma-bigscree"), // plasma-bigscreen-inputhandler
++        QStringLiteral("steam"),
++        QStringLiteral("steamwebhelper"),
++    };
++    return names;
++}
 +}
 +
 +GamepadListener::GamepadListener(QObject *parent)
@@ -320,6 +345,9 @@ index 0000000..c2ac93f
 +    }
 +
 +    m_grabbing = grabbing;
++
++    // Whether a game holds the pad decides whether we may grab it at all
++    refreshClaim();
 +    updateGrab();
 +
 +    if (!grabbing) {
@@ -338,8 +366,10 @@ index 0000000..c2ac93f
 +
 +bool GamepadListener::effectivelyGrabbing() const
 +{
-+    // Holding Home suspends the grab, see the BTN_MODE case in handleButton()
-+    return m_grabbing && !m_homeHeld;
++    // Holding Home suspends the grab, see the BTN_MODE case in handleButton().
++    // Grabbing a pad a game is reading would take the controller away from the
++    // game entirely, so never do it while one has the device open.
++    return m_grabbing && !m_homeHeld && !m_claimedByApp;
 +}
 +
 +void GamepadListener::applyGrab(Device *device)
@@ -672,6 +702,99 @@ index 0000000..c2ac93f
 +    }
 +}
 +
++bool GamepadListener::isClaimedByApp() const
++{
++    return m_claimedByApp;
++}
++
++void GamepadListener::refreshClaim()
++{
++    if (m_claimAge.isValid() && m_claimAge.elapsed() < CLAIM_CACHE_MS) {
++        return;
++    }
++
++    const bool claimed = scanForOtherReaders();
++    m_claimAge.restart();
++
++    if (claimed == m_claimedByApp) {
++        return;
++    }
++
++    m_claimedByApp = claimed;
++    qCDebug(PlasmaKeyboard) << (claimed ? "Another application took the controller" : "The controller is free again");
++
++    updateGrab();
++    Q_EMIT claimedByAppChanged(claimed);
++}
++
++QStringList GamepadListener::deviceNodeNames(const Device *device)
++{
++    const QString eventName = QFileInfo(device->path).fileName();
++
++    // The same physical pad is also exposed as /dev/input/jsN, and plenty of
++    // software opens that one instead. Both node names sit next to each other
++    // in the device's sysfs directory.
++    QStringList names{eventName};
++
++    const QDir sysfs(QStringLiteral("/sys/class/input/%1/device").arg(eventName));
++    const QStringList siblings = sysfs.entryList({QStringLiteral("js*"), QStringLiteral("event*")}, QDir::Dirs | QDir::NoDotAndDotDot);
++    for (const QString &sibling : siblings) {
++        if (!names.contains(sibling)) {
++            names.append(sibling);
++        }
++    }
++
++    return names;
++}
++
++bool GamepadListener::scanForOtherReaders() const
++{
++    if (m_devices.isEmpty()) {
++        return false;
++    }
++
++    QSet<QString> targets;
++    for (const Device *device : std::as_const(m_devices)) {
++        const QStringList names = deviceNodeNames(device);
++        for (const QString &name : names) {
++            targets.insert(QStringLiteral("/dev/input/") + name);
++        }
++    }
++
++    const QString myPid = QString::number(QCoreApplication::applicationPid());
++
++    const QDir proc(QStringLiteral("/proc"));
++    const QStringList pids = proc.entryList(QDir::Dirs | QDir::NoDotAndDotDot);
++
++    for (const QString &pid : pids) {
++        if (pid == myPid || pid.isEmpty() || !pid.at(0).isDigit()) {
++            continue;
++        }
++
++        QFile comm(QStringLiteral("/proc/%1/comm").arg(pid));
++        if (!comm.open(QIODevice::ReadOnly)) {
++            // Another user's process, or it exited from under us. Processes we
++            // cannot read are also ones we cannot check; a game runs as us.
++            continue;
++        }
++
++        if (inputInfrastructure().contains(QString::fromUtf8(comm.readAll()).trimmed())) {
++            continue;
++        }
++
++        const QDir fds(QStringLiteral("/proc/%1/fd").arg(pid));
++        const QStringList entries = fds.entryList(QDir::System | QDir::Hidden | QDir::NoDotAndDotDot);
++
++        for (const QString &entry : entries) {
++            if (targets.contains(QFile::symLinkTarget(fds.absoluteFilePath(entry)))) {
++                return true;
++            }
++        }
++    }
++
++    return false;
++}
++
 +bool GamepadListener::hasAnalogTriggers(const Device *device)
 +{
 +    // A pad with a real right stick reports it as ABS_RX/ABS_RY, which leaves
@@ -793,10 +916,10 @@ index 0000000..c2ac93f
 +#include "moc_gamepadlistener.cpp"
 diff --git a/src/gamepadlistener.h b/src/gamepadlistener.h
 new file mode 100644
-index 0000000..2365788
+index 0000000..3df8923
 --- /dev/null
 +++ b/src/gamepadlistener.h
-@@ -0,0 +1,180 @@
+@@ -0,0 +1,218 @@
 +/*
 +    SPDX-FileCopyrightText: 2026 Diego Villalobos <diegovillalobos397@gmail.com>
 +
@@ -805,8 +928,10 @@ index 0000000..2365788
 +
 +#pragma once
 +
++#include <QElapsedTimer>
 +#include <QHash>
 +#include <QObject>
++#include <QStringList>
 +#include <QTimer>
 +
 +struct libevdev;
@@ -835,6 +960,9 @@ index 0000000..2365788
 + * The Home / Guide button is never ours: it belongs to the shell. The exclusive
 + * grab is dropped for as long as it is held so the rest of the session keeps
 + * receiving it.
++ *
++ * The whole thing stands down while another application is reading the
++ * controller, so that a game keeps its pad to itself. See scanForOtherReaders().
 + */
 +class GamepadListener : public QObject
 +{
@@ -873,6 +1001,20 @@ index 0000000..2365788
 +     */
 +    bool hasDevices() const;
 +
++    /**
++     * Whether some other application is reading the controller — a running
++     * game, typically.
++     *
++     * Cached; call refreshClaim() to re-evaluate.
++     */
++    bool isClaimedByApp() const;
++
++    /**
++     * Re-scan for other readers of the controller. Cheap enough to call before
++     * acting on a button, expensive enough not to call per event.
++     */
++    void refreshClaim();
++
 +Q_SIGNALS:
 +    /**
 +     * A navigation key (arrow keys or Return) was pressed on the controller.
@@ -897,6 +1039,11 @@ index 0000000..2365788
 +
 +    void hasDevicesChanged();
 +
++    /**
++     * Another application took the controller, or gave it back.
++     */
++    void claimedByAppChanged(bool claimed);
++
 +private:
 +    struct Device {
 +        QString path;
@@ -920,6 +1067,18 @@ index 0000000..2365788
 +    void closeAll();
 +    void applyGrab(Device *device);
 +    void updateGrab();
++
++    /**
++     * The /dev/input node names the given device is exposed under, e.g.
++     * {"event258", "js1"} — a process may hold either.
++     */
++    static QStringList deviceNodeNames(const Device *device);
++
++    /**
++     * Walk /proc for a process other than ourselves and the session's input
++     * plumbing holding one of our controllers open.
++     */
++    bool scanForOtherReaders() const;
 +
 +    /**
 +     * Whether we are actually holding the devices exclusively right now.
@@ -971,6 +1130,8 @@ index 0000000..2365788
 +    bool m_triggerRight = false;
 +    bool m_shiftHeld = false;
 +    bool m_homeHeld = false;
++    bool m_claimedByApp = false;
++    QElapsedTimer m_claimAge;
 +
 +    int m_navigationKey = 0;
 +    Action m_repeatAction = Backspace;
@@ -978,7 +1139,7 @@ index 0000000..2365788
 +    bool m_repeating = false;
 +};
 diff --git a/src/inputlisteneritem.cpp b/src/inputlisteneritem.cpp
-index ca6bb6a..2b30fc9 100644
+index ca6bb6a..50ed7d5 100644
 --- a/src/inputlisteneritem.cpp
 +++ b/src/inputlisteneritem.cpp
 @@ -16,6 +16,11 @@
@@ -1043,7 +1204,7 @@ index ca6bb6a..2b30fc9 100644
      });
  
      connect(&m_input, &InputPlugin::keyPressed, this, [this](QKeyEvent *keyEvent) {
-@@ -187,6 +203,159 @@ OverlayController *InputListenerItem::overlayController() const
+@@ -187,6 +203,173 @@ OverlayController *InputListenerItem::overlayController() const
      return m_overlayController;
  }
  
@@ -1146,7 +1307,14 @@ index ca6bb6a..2b30fc9 100644
 +    }
 +
 +    // The window can have isVisible() = true, but not be shown by the compositor if the input panel is suppressed
-+    return window() && window()->isExposed();
++    if (!window() || !window()->isExposed()) {
++        return false;
++    }
++
++    // Stay out of the way of whatever is reading the controller. The answer is
++    // cached, so this is cheap enough to ask on every event.
++    m_gamepad->refreshClaim();
++    return !m_gamepad->isClaimedByApp();
 +}
 +
 +void InputListenerItem::updateGamepadGrab()
@@ -1176,6 +1344,13 @@ index ca6bb6a..2b30fc9 100644
 +    // Only bring the keyboard up when the focused window has a text field to
 +    // type into. Without this the summon button would pop the keyboard open in
 +    // the middle of a game, where it shares a face button with a game action.
++    // A game reading the controller owns its buttons; summoning the keyboard
++    // over it is exactly the surprise this check exists to prevent.
++    m_gamepad->refreshClaim();
++    if (m_gamepad->isClaimedByApp()) {
++        return;
++    }
++
 +    // Asking for the keyboard back overrides the earlier dismissal
 +    m_userDismissed = false;
 +

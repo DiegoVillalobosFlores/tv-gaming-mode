@@ -18,7 +18,7 @@ options=(!debug)
 source=(https://download.kde.org/stable/plasma/$_dirver/$pkgname-$pkgver.tar.xz
         0001-gamepad-navigation-for-the-on-screen-keyboard.patch)
 sha256sums=('7bbcf6df3e4f3aa2f0c59e33fdc5cfc93377c04369283f1900be8f7b8fe194a1'
-            '7c0539225b87cba50b4ed197ac06a24c4342d7fa9fc3f7225bcdbdcb1c3d6def')
+            'e85b946169113c66464d06949c2c1d2958fc7667a7de038c0d93041f726a2113')
 
 prepare() {
   patch -d $pkgname-$pkgver -p1 < 0001-gamepad-navigation-for-the-on-screen-keyboard.patch
