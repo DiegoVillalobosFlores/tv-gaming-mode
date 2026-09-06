@@ -131,23 +131,34 @@ it at startup rather than looping on an unreadable device.
 
 ### The S5 wake itself
 
-**Settled by measurement: S5 wake from the Home button does not work on this
-hardware, and no Linux change will alter that.** Do not reopen it. ASRock's
-`USB Keyboard/Remote Power On` watches for HID keyboard reports; the Wolverine
-receiver enumerates a keyboard interface (`-if01-event-kbd`) but never emits on
-it — a 90-second capture across all three of its nodes gave 196 joystick events
-and zero keyboard events. Home is `BTN_MODE` on the joystick node only.
+**Settled by direct test: the board will not wake from this receiver in S5.**
+Full shutdown, receiver in the armed port `USB32_8`, press Home — nothing. Do not
+reopen it, and in particular do not propose BIOS changes: every relevant setting
+was already correct at the time of the test (`Deep Sleep` Disabled,
+`USB Device Power on (USB32_8)` Enabled, S5 power delivery Enabled), as was the
+Linux side (`power/wakeup=enabled`, `bmAttributes=a0`, controller's ACPI wake
+node enabled).
 
-Two hypotheses that sound right and are wrong, both already tested:
+Four hypotheses were tested and are all dead ends — do not re-run them:
 
-- *"The receiver must be on a CPU-attached port."* False here. Every USB
-  controller has an enabled ACPI wake node, chipset included (`grep XH
-  /proc/acpi/wakeup`). Also, the CPU's USB 2.0 controller `XHC2`
-  (`0000:79:00.0`) has one port, wired to the internal LED header — it reaches
-  no rear socket, so "move it to the rear USB 2.0 pair to get on the CPU" is
-  doubly wrong.
-- *"The udev rule is not applying."* It applies. Check before doubting:
-  `bmAttributes=a0` and `power/wakeup=enabled` on the `1532:0a4c` device.
+- *"The receiver must be on a CPU-attached port."* False. Every USB controller
+  has an enabled ACPI wake node, chipset included (`grep XH /proc/acpi/wakeup`).
+  The CPU's USB 2.0 controller `XHC2` (`0000:79:00.0`) has one port, wired to the
+  internal LED header — it reaches no rear socket at all.
+- *"The udev rule is not applying."* It applies.
+- *"The BIOS is misconfigured."* It is not.
+- *"Test it with a real keyboard."* Void by construction. `USB Device Power on
+  (USB32_8)` is scoped to **one named port**; a keyboard in any other socket is
+  not armed, so its failure to wake the machine carries no information. Both
+  keyboards on this machine (`10-5`, `8-2`) are outside that port.
+
+The receiver's keyboard interface is enumerated but permanently silent (196
+joystick events, 0 keyboard events over a 90s capture; Home is `BTN_MODE` on the
+joystick node). That was suggestive but never sufficient — the setting says
+`Device`, not `Keyboard`. The direct test is what settled it.
+
+Note `Suspend to RAM` is **Disabled**, so `/sys/power/mem_sleep` offers only
+`s2idle`; S3 needs that BIOS toggle before it is an option.
 
 `udev/93-wolverine-wake.rules` is kept because it is correct and costs nothing,
 and because it is what makes **suspend (S3)** work — there a kernel is running,
@@ -159,6 +170,15 @@ Setting it from a login script would be too late.
 
 If a machine is not waking, the answer is S3 or Wake-on-LAN, not more Linux
 configuration.
+
+### Never `pkill -x evtest`
+
+`tv-mode-watch.service` runs an `evtest` child of its own on the TV remote's
+mouse node for the whole session (`tv-mode-watch.sh` -> `evtest
+.../usb-123_COM_Smart_Control-if03-event-mouse`). A blanket `pkill -x evtest`
+while debugging the controller kills it. The watcher's loop re-spawns it, so
+`NRestarts` stays 0 and nothing looks wrong — you just silently lose the remote
+until the next iteration. Kill capture jobs by job spec or pid instead.
 
 ### Enabling
 

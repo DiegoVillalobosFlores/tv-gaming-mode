@@ -386,24 +386,38 @@ first is firmware and may not be possible on your board at all.
 
 #### Half one — the power-on (firmware)
 
-**On this machine, measured: this does not work, and cannot be made to.** The
-reasoning below is kept because the *method* transfers to other receivers; the
-verdict is specific to the Wolverine V3 Pro's 2.4GHz dongle.
+**Settled: the board will not wake from this receiver.** Tested directly — full
+shutdown, receiver in `USB32_8`, press Home: nothing. That is the only valid
+experiment for this board, and it failed.
 
-Linux has no part in it. In S5 there is no kernel running, so waking the board is
-entirely up to the BIOS and to whether the port still has +5VSB. ASRock's feature
-is called `USB Keyboard/Remote Power On`, and the name is literal: the firmware
-watches for **HID keyboard reports**. A gamepad's reports are not keyboard
-reports and the firmware ignores them.
+Everything the wake needs was in place when it failed, which is what makes the
+result conclusive rather than a configuration miss:
 
-The Wolverine's receiver looked like it might slip through, because it enumerates
-a keyboard interface next to the pad:
+| | |
+| --- | --- |
+| `Deep Sleep` | Disabled — +5VSB reaches the port in S5 |
+| `USB Device Power on (USB32_8)` | Enabled — and the receiver is in `USB32_8` |
+| `USB Power delivery in Soft Off state (S5)` | Enabled |
+| `power/wakeup` on `1532:0a4c` | `enabled`, `bmAttributes=a0` |
+| ACPI wake node for its controller | `XH00 S4 *enabled pci:0000:12:00.0` |
 
-```sh
-ls /dev/input/by-id/ | grep -i wolverine
-# ...-if01-event-kbd    <- a full keyboard, as far as the descriptor goes
-# ...-event-joystick    <- the xpad node the session reads
-```
+So the firmware does not accept a 2.4GHz gamepad receiver as a wake source, and
+no Linux-side or BIOS-side change will alter that. Use the fallbacks below.
+
+Two traps this cost time on, both worth avoiding on any similar board:
+
+- **The wake is scoped to one named port.** `USB Device Power on (USB32_8)` arms
+  `USB32_8` and nothing else. Testing with a keyboard in a different socket —
+  even a different port on the *same* controller — proves nothing. On this
+  machine the Keychron (`10-5`, controller `0000:12:00.0`) and the Lofree
+  (`8-2`, controller `0000:10:00.0`) are both outside the armed port; neither
+  wakes the machine, and neither result means anything.
+- **The setting says `Device`, not `Keyboard`.** Many ASRock boards ship a
+  `USB Keyboard/Remote Power On` toggle that filters for HID keyboard reports.
+  This one does not use that wording, so the receiver's silent keyboard
+  interface (below) was never a sufficient reason to call the case closed. It
+  turned out not to work anyway — but for a reason that had to be measured, not
+  inferred.
 
 That interface is real — it opens, and it advertises the whole `KEY_A`..`KEY_Z`
 range. The question is whether any button on the pad ever makes it *emit*
@@ -414,7 +428,10 @@ for n in if01-event-kbd event-joystick if01-event-mouse; do
   stdbuf -oL evtest /dev/input/by-id/usb-Razer_Razer_Wolverine_V3_Pro_for_Xbox_2.4-$n \
     2>/dev/null | stdbuf -oL grep 'Event:' | sed "s|^|$n: |" &
 done
-# press Home, A, the D-pad...; then: pkill -x evtest
+# press Home, A, the D-pad... then stop just these three:
+#   kill %1 %2 %3
+# Do NOT use "pkill -x evtest": tv-mode-watch.service runs an evtest of its
+# own on the TV remote, and pkill takes that down too.
 ```
 
 The answer for this receiver is unambiguous. Over a 90-second capture with Home
@@ -469,26 +486,38 @@ device: *"Ultra USB Power is supported on USB32_34 ports. ACPI wake-up function
 is not supported on USB32_34 ports."* That is rear panel item 2, the three USB
 3.2 Gen1 ports.
 
-**If you want to try anyway**, or with a receiver whose keyboard interface does
-emit, set these under *Advanced → ACPI Configuration*:
+**The BIOS settings**, under *Advanced → ACPI Configuration*, as verified on this
+machine (BIOS 4.20):
 
-| Setting | Set it to | Why |
-| --- | --- | --- |
-| `Deep Sleep` | **Disabled** | Any other value cuts +5VSB in S5, so the receiver is unpowered and nothing can wake anything. This one is non-negotiable. |
-| `USB Keyboard/Remote Power On` | **Enabled** | The actual feature. Named `PS/2 or USB Keyboard Power On` on some BIOS revisions. |
-| `USB Power Delivery in Soft Off State (S5)` | **Enabled** | Keeps the ports live so the receiver stays associated. |
-| `ErP Ready` (under *Advanced → Onboard Devices*) | **Disabled** | ErP is the EU standby-power mode; it forces everything above off. |
+| Setting | Required | Observed | |
+| --- | --- | --- | --- |
+| `Deep Sleep` | Disabled | **Disabled** | ok — any other value cuts +5VSB in S5 |
+| `USB Device Power on (USB32_8)` | Enabled | **Enabled** | ok — and scoped to the port the receiver is in |
+| `USB Power delivery in Soft Off state (S5)` | Enabled | **Enabled** | ok — keeps the port live |
+| `Suspend to RAM` | Enabled, *for the S3 fallback only* | **Disabled** | see below |
+| `Restore on AC/Power Loss` | — | Power Off | irrelevant here |
+| `RTC Alarm Power On` | — | Disabled | irrelevant here |
 
-The board manual documents the hardware only — the BIOS options live in ASRock's
-separate UEFI guide, so the exact wording above may differ by a word or two on
-your revision (this machine is on 4.20).
+There is no `ErP Ready` in this menu on this revision; `Deep Sleep` covers the
+same ground. So every setting the S5 wake needs is already correct — if pressing
+Home from a full shutdown does nothing, the firmware genuinely does not accept
+this receiver, and the settings are not the reason.
 
 **The fallbacks**, in increasing order of effort:
 
 - **Suspend (S3) instead of S5.** A kernel *is* running in S3, so the receiver's
   USB remote wakeup — already armed, `bmAttributes=a0` — can resume the machine
-  on any button, no keyboard interface needed. This is the path that actually
-  works with this hardware, at the cost of the machine drawing standby power.
+  on any button, no keyboard interface and no port scoping involved. **This is
+  not currently available**: `Suspend to RAM` is Disabled in the BIOS, so the
+  kernel offers only `s2idle`:
+
+  ```sh
+  cat /sys/power/mem_sleep     # [s2idle]      <- no "deep" = no S3
+  ```
+
+  Enable `Suspend to RAM` under *Advanced → ACPI Configuration* and `deep`
+  appears in that file. s2idle will *also* resume on a controller button, but it
+  is a much lighter sleep and draws correspondingly more power.
 - **Wake-on-LAN** from a phone. `enp8s0` currently has `power/wakeup` disabled;
   `sudo ethtool enp8s0` will say whether the NIC supports `g` (magic packet).
 - **A second small device in the wake port** that does emit keyboard reports — a
@@ -596,7 +625,7 @@ state through their own file, and interleaving them will restore the wrong layou
 | Keyboard never activates, even on the desktop | Something always-resident is holding the pad and is not on the ignore list in §5. Run the scan with no game running; whatever shows up needs adding to `inputInfrastructure()`. |
 | Controller stops working in a game while a text field is focused | Should no longer happen — the grab is suppressed while a game holds the pad. If it does, the standdown check is failing to see that game. |
 | Stuck in TV mode after a crash | State lives in `$XDG_RUNTIME_DIR`, so a reboot always lands back on the desktop. Or `tv-mode.sh off`. |
-| Home does not power the machine on | Expected on this hardware — the receiver's keyboard interface emits nothing, so the firmware has nothing to see in S5. Confirm with the three-node `evtest` capture in §6 before chasing BIOS settings or ports. Use suspend (S3) or Wake-on-LAN instead. |
+| Home does not power the machine on | The BIOS side is already correct (§6): `Deep Sleep` Disabled, `USB Device Power on (USB32_8)` Enabled, S5 power delivery Enabled. Check the receiver is actually in `USB32_8` — the wake is scoped to that one port, so testing with a keyboard elsewhere proves nothing. If Home still does nothing, the firmware does not accept this receiver; use Wake-on-LAN, or enable `Suspend to RAM` and suspend instead. |
 | Controller press does not switch to TV mode at boot | First check the receiver is actually enumerated: `lsusb | grep 1532:0a4c`. If it is absent, `tv-mode-boot.service` exits after its 30s `PLUG_WAIT` having done nothing, and the journal shows a start and a finish exactly 30 seconds apart. |
 | Machine powers on but stays on the desktop | `tv-mode-boot.service` is not enabled, no button was pressed inside its 120s window, or the receiver took longer than `PLUG_WAIT` to enumerate. `journalctl --user -u tv-mode-boot.service -b`. |
 | Every boot lands in TV mode | Something is pressing the pad — a controller wedged in the sofa reporting a stuck button. `evtest` the joystick node. Axis drift is already ignored; only `EV_KEY` counts. |

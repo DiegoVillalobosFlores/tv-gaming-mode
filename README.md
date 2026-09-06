@@ -172,18 +172,18 @@ backs off for 30 seconds rather than repeating the notification on every click.
 Pressing **Home** on the controller to wake a machine that is fully off, and
 having it come up on the TV, is two halves that fail independently.
 
-The **power-on** is firmware, and on this hardware it **does not work**. ASRock's
-`USB Keyboard/Remote Power On` watches for HID keyboard reports, and while the
-Wolverine's receiver does enumerate a keyboard interface next to the pad, that
-interface is permanently silent: a 90-second `evtest` capture across all three of
-its nodes caught 196 events on the joystick node (Home arrives as `BTN_MODE`) and
-zero on the keyboard one. There is nothing for the firmware to see in S5, so no
-BIOS setting or port choice changes the outcome. Two popular explanations are
-ruled out — every USB controller on this board, chipset included, is an enabled
-ACPI wake source, and `udev/93-wolverine-wake.rules` correctly leaves the receiver
-at `wakeup=enabled`. The fallbacks are suspend (S3), where a running kernel makes
-the pad's ordinary USB remote wakeup enough, or Wake-on-LAN from a phone.
-SETUP.md §6 has the measurements and the method.
+The **power-on** is firmware, and on this board it **does not work** — tested
+directly, with a full shutdown, the receiver in the armed port and every relevant
+setting correct. The governing option is `USB Device Power on (USB32_8)`: note
+*Device* rather than *Keyboard*, and note that it arms exactly one named rear
+port, which makes the tempting "just test it with a real keyboard" experiment
+meaningless unless the keyboard is in that same socket. With `Deep Sleep`
+Disabled, S5 power delivery Enabled, the receiver in `USB32_8` and its
+`power/wakeup` armed, pressing Home from soft-off does nothing. The firmware
+simply does not accept a 2.4GHz gamepad receiver as a wake source. SETUP.md §6
+has the full measurements and the dead ends. The fallbacks are Wake-on-LAN, or
+suspend — which needs `Suspend to RAM` enabled in the BIOS first, since the
+kernel currently offers only `s2idle`.
 
 The **landing in TV mode** is `bin/tv-mode-boot.sh`, and it works whether or not
 the first half does:
