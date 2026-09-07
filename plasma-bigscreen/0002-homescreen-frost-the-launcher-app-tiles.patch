@@ -1,0 +1,198 @@
+diff --git a/components/bigscreenplugin/qml/AbstractDelegate.qml b/components/bigscreenplugin/qml/AbstractDelegate.qml
+index 8b3c0fc..2f10314 100644
+--- a/components/bigscreenplugin/qml/AbstractDelegate.qml
++++ b/components/bigscreenplugin/qml/AbstractDelegate.qml
+@@ -9,6 +9,7 @@ import QtQuick
+ import QtQuick.Layouts
+ import QtQuick.Controls as QQC2
+ import QtQuick.Effects
++import Qt5Compat.GraphicalEffects
+ 
+ import org.kde.plasma.components as PlasmaComponents
+ import org.kde.kirigami as Kirigami
+@@ -36,6 +37,16 @@ QQC2.ItemDelegate {
+     property int borderSize: Kirigami.Units.smallSpacing
+     property int baseRadius: Kirigami.Units.cornerRadius
+ 
++    // Opt-in frosted glass. Set frostSourceItem and the tile is filled with a
++    // blurred slice of that item under a translucent frame, instead of an
++    // opaque one. Only delegates that have something of their own behind them
++    // — the launcher tiles over the wallpaper — set it; everything else leaves
++    // it null and keeps the opaque frame unchanged.
++    property Item frostSourceItem: null
++    // The frame's alpha over the blur.
++    property real frostOpacity: 0.6
++    readonly property bool frosted: frostSourceItem !== null
++
+     z: isCurrent ? 2 : 0
+ 
+     onClicked: {
+@@ -85,11 +96,79 @@ QQC2.ItemDelegate {
+             }
+         }
+ 
++        // Frosted glass, drawn under the frame and clipped to its rounded shape.
++        Item {
++            id: frost
++            anchors.fill: frame
++            visible: delegate.frosted
++
++            // Samples only the slice of the source this tile covers, at an
++            // eighth of its size: the downsample is most of the blur and costs
++            // a fraction of blurring at full resolution.
++            ShaderEffectSource {
++                id: frostSource
++                anchors.fill: parent
++                visible: false
++                smooth: true
++                live: delegate.frosted
++                hideSource: false
++                sourceItem: delegate.frostSourceItem
++                textureSize: Qt.size(Math.max(1, Math.round(width / 8)),
++                                     Math.max(1, Math.round(height / 8)))
++
++                sourceRect: {
++                    const source = delegate.frostSourceItem;
++                    if (!source) {
++                        return Qt.rect(0, 0, 0, 0);
++                    }
++                    // mapToItem() is a function call and not a binding source,
++                    // so these reads are the whole reason the mapping re-runs
++                    // when the view scrolls or the delegate moves or is reused.
++                    delegate.x; delegate.y; delegate.width; delegate.height;
++                    if (delegate.listView) {
++                        delegate.listView.contentX;
++                        delegate.listView.contentY;
++                    }
++                    const origin = frost.mapToItem(source, 0, 0);
++                    return Qt.rect(origin.x, origin.y, frost.width, frost.height);
++                }
++            }
++
++            // FastBlur rather than MultiEffect, for the reason given in the
++            // homescreen's wallpaper blur: MultiEffect is far slower here.
++            FastBlur {
++                id: frostBlur
++                anchors.fill: parent
++                visible: false
++                source: frostSource
++                radius: 32
++            }
++
++            // Follows frame.radius, which the states below animate.
++            Rectangle {
++                id: frostMask
++                anchors.fill: parent
++                visible: false
++                radius: frame.radius
++            }
++
++            OpacityMask {
++                anchors.fill: parent
++                source: frostBlur
++                maskSource: frostMask
++            }
++        }
++
+         Rectangle {
+             id: frame
+             anchors.fill: parent
+             radius: delegate.baseRadius
+-            color: delegate.Kirigami.Theme.backgroundColor
++            color: delegate.frosted
++                ? Qt.rgba(delegate.Kirigami.Theme.backgroundColor.r,
++                          delegate.Kirigami.Theme.backgroundColor.g,
++                          delegate.Kirigami.Theme.backgroundColor.b,
++                          delegate.frostOpacity)
++                : delegate.Kirigami.Theme.backgroundColor
+             visible: false // Drawn by MultiEffect below
+ 
+             states: [
+diff --git a/containments/homescreen/package/contents/ui/launcher/delegates/AppDelegate.qml b/containments/homescreen/package/contents/ui/launcher/delegates/AppDelegate.qml
+index 549fd0d..e855bff 100644
+--- a/containments/homescreen/package/contents/ui/launcher/delegates/AppDelegate.qml
++++ b/containments/homescreen/package/contents/ui/launcher/delegates/AppDelegate.qml
+@@ -20,7 +20,6 @@ IconDelegate {
+ 
+     icon.name: modelData ? modelData.ApplicationIconRole : ""
+     text: modelData ? modelData.ApplicationNameRole : ""
+-    useIconColors: Plasmoid.configuration.coloredTiles
+ 
+     onClicked: {
+         Bigscreen.NavigationSoundEffects.playClickedSound();
+diff --git a/containments/homescreen/package/contents/ui/launcher/delegates/FavDelegate.qml b/containments/homescreen/package/contents/ui/launcher/delegates/FavDelegate.qml
+index 9c18901..813f314 100644
+--- a/containments/homescreen/package/contents/ui/launcher/delegates/FavDelegate.qml
++++ b/containments/homescreen/package/contents/ui/launcher/delegates/FavDelegate.qml
+@@ -14,7 +14,6 @@ import org.kde.plasma.plasmoid
+ 
+ IconDelegate {
+     id: delegate
+-    useIconColors: Plasmoid.configuration.coloredTiles
+ 
+     icon.name: modelData.ApplicationIconRole
+     text: modelData ? modelData.ApplicationNameRole : ""
+diff --git a/containments/homescreen/package/contents/ui/launcher/delegates/IconDelegate.qml b/containments/homescreen/package/contents/ui/launcher/delegates/IconDelegate.qml
+index 9e801ca..70ffcfb 100644
+--- a/containments/homescreen/package/contents/ui/launcher/delegates/IconDelegate.qml
++++ b/containments/homescreen/package/contents/ui/launcher/delegates/IconDelegate.qml
+@@ -11,6 +11,7 @@ import QtQuick.Controls as QQC2
+ import QtQuick.Effects
+ import org.kde.kirigami as Kirigami
+ import org.kde.bigscreen as Bigscreen
++import org.kde.plasma.plasmoid
+ 
+ Bigscreen.AbstractDelegate {
+     id: delegate
+@@ -20,20 +21,20 @@ Bigscreen.AbstractDelegate {
+     baseRadius: Kirigami.Units.gridUnit
+ 
+     property var iconImage
+-    property bool useIconColors: true
+ 
+-    Kirigami.Theme.inherit: !imagePalette.useColors
+-    Kirigami.Theme.textColor: imagePalette.textColor
+-    Kirigami.Theme.backgroundColor: imagePalette.backgroundColor
+-    Kirigami.Theme.highlightColor: Kirigami.Theme.accentColor
++    // Frost the tiles against the wallpaper, so a tile reads as a pane over the
++    // background rather than a slab sitting on it.
++    frostSourceItem: Plasmoid.wallpaperGraphicsObject
+ 
+-    Kirigami.ImageColors {
+-        id: imagePalette
+-        property bool useColors: useIconColors
+-        property color backgroundColor: useColors ? dominantContrast : Kirigami.Theme.backgroundColor
+-        property color accentColor: useColors ? highlight : Kirigami.Theme.highlightColor
+-        property color textColor: useColors ? (Kirigami.ColorUtils.brightnessForColor(dominantContrast) === Kirigami.ColorUtils.Light ? imagePalette.closestToBlack : imagePalette.closestToWhite) : Kirigami.Theme.textColor
+-    }
++    // Smoked glass, not colour. Upstream tinted the tile, its label and its
++    // selection border all from the icon's own palette, so the border came out
++    // in the same family as the tile it was drawn on and washed out from across
++    // the room. Black tile, off-white border, and the icon supplies the only
++    // colour on the tile.
++    Kirigami.Theme.inherit: false
++    Kirigami.Theme.backgroundColor: "black"
++    Kirigami.Theme.highlightColor: "#e6e6e6"
++    Kirigami.Theme.textColor: "#f5f5f5"
+ 
+     contentItem: Item {
+         id: content
+@@ -50,18 +51,6 @@ Bigscreen.AbstractDelegate {
+                 Layout.preferredHeight: width
+                 Layout.alignment: Qt.AlignHCenter
+                 source: delegate.iconImage || delegate.icon.name
+-                property var pathRegex: /^(\/[^\/]+)+$/;
+-
+-                onStatusChanged: {
+-                    if (status === 1) {
+-                        if (pathRegex.test(source)) {
+-                            console.log("Snaps/Flatpak icon color not supported.");
+-                        } else {
+-                            imagePalette.source = iconItem.source;
+-                            imagePalette.update();
+-                        }
+-                    }
+-                }
+             }
+ 
+             QQC2.Label {

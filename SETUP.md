@@ -238,15 +238,15 @@ journalctl --user -u tv-mode-zoom.service -f
 
 ---
 
-## 4. Build the Bigscreen patch
+## 4. Build the Bigscreen patches
 
 ```sh
 cd plasma-bigscreen
 makepkg -si
 ```
 
-This fetches `plasma-bigscreen-6.7.4.tar.xz` from `download.kde.org`, verifies both
-checksums, applies the patch, builds, and installs as **`6.7.4-1.9`**.
+This fetches `plasma-bigscreen-6.7.4.tar.xz` from `download.kde.org`, verifies all
+three checksums, applies both patches, builds, and installs as **`6.7.4-1.11`**.
 
 Then reload the shell:
 
@@ -264,16 +264,19 @@ the desktop shell instead.
 pacman -Qi plasma-bigscreen | grep -E '^(Version|Description)'
 ```
 
-Patched: `6.7.4-1.9` and `(patched: running apps listed in the home overlay sidebar)`.
-Stock: `6.7.4-1.1` and `Plasma shell for TVs`.
+Patched: `6.7.4-1.11` and `(patched: running apps listed in the home overlay
+sidebar, frosted launcher tiles)`. Stock: `6.7.4-1.1` and `Plasma shell for TVs`.
 
 > **This is reverted by any `pacman -Syu` that updates `plasma-bigscreen`**, with no
 > warning — the patched package installs exactly the same file list as stock, so
 > nothing looks wrong. After an upstream bump, edit `pkgver` and the tarball
-> `sha256sums` in `plasma-bigscreen/PKGBUILD` and rerun `makepkg -si`. If the patch
+> `sha256sums` in `plasma-bigscreen/PKGBUILD` and rerun `makepkg -si`. If a patch
 > no longer applies, re-derive it against the new tag from
-> `invent.kde.org/plasma/plasma-bigscreen`; it touches three files under
-> `containments/homescreen/package/contents/ui/homeoverlay/`.
+> `invent.kde.org/plasma/plasma-bigscreen`. `0001` touches three files under
+> `containments/homescreen/package/contents/ui/homeoverlay/`; `0002` touches
+> `components/bigscreenplugin/qml/AbstractDelegate.qml` and the `Icon`, `App` and
+> `Fav` delegates under
+> `containments/homescreen/package/contents/ui/launcher/delegates/`.
 
 ---
 

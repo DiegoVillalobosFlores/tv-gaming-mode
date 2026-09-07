@@ -16,13 +16,14 @@ Three things that ship together because they are used together:
    controller's bumpers while TV mode is on — all three over the shared
    `bin/tv-mode-input.sh` and each with a user unit under `systemd/`.
    `udev/93-wolverine-wake.rules` arms the controller's receiver as a wake source.
-2. **`plasma-bigscreen/`** — a patch against upstream Plasma Bigscreen `v6.7.4` that
-   lists running apps inline in the home overlay sidebar, plus a PKGBUILD.
+2. **`plasma-bigscreen/`** — two patches against upstream Plasma Bigscreen `v6.7.4`:
+   one lists running apps inline in the home overlay sidebar, one restyles the
+   launcher's app tiles as smoked glass. Plus a PKGBUILD that applies both.
 3. **`plasma-keyboard/`** — a patch against upstream `plasma-keyboard` `v6.7.4` that
    lets a game controller drive the on-screen keyboard, plus a PKGBUILD.
 
 There is no build system, no test suite and no CI. The scripts are POSIX `sh`
-(`#!/bin/sh`, not bash — keep it that way). The Bigscreen patch is plain QML; the
+(`#!/bin/sh`, not bash — keep it that way). The Bigscreen patches are plain QML; the
 keyboard patch is C++ and QML and does have to compile (`makepkg -Cf`).
 
 ## This repo edits the live session
@@ -264,21 +265,34 @@ controller to blank the user's monitors and invoke `tv-mode.sh on`, which the
 rest of this file explains you should not run uninvited; `tv-mode-zoom.service`
 is milder but still reaches into the running session's compositor.
 
-## Working on the Bigscreen patch
+## Working on the Bigscreen patches
 
 The homescreen QML is **compiled into `org.kde.bigscreen.homescreen.so`** as a Qt
-resource. Editing QML under `/usr/lib/qt6/qml/` or in a Plasma package directory has
-no effect — the shell loads the baked-in copy. Every change means a rebuild.
+resource, and the shared delegates into the `org.kde.bigscreen` QML module. Editing
+QML under `/usr/lib/qt6/qml/` or in a Plasma package directory has no effect — the
+shell loads the baked-in copy. Every change means a rebuild.
+
+The two patches are disjoint — `0001` is the home overlay, `0002` is the launcher —
+so regenerate them one at a time from a clean checkout rather than diffing a tree
+that has both applied:
 
 ```sh
 git clone --depth 1 -b v6.7.4 https://invent.kde.org/plasma/plasma-bigscreen.git
 # edit under containments/homescreen/package/contents/ui/homeoverlay/
 git diff > plasma-bigscreen/0001-homescreen-list-running-apps-in-home-overlay.patch
-# update the patch's sha256 in the PKGBUILD, then:
+git checkout -- .
+# edit AbstractDelegate.qml / launcher/delegates/IconDelegate.qml
+git diff > plasma-bigscreen/0002-homescreen-frost-the-launcher-app-tiles.patch
+# update both sha256s in the PKGBUILD, then:
 cd plasma-bigscreen && makepkg -si
 ```
 
-The patch touches three files:
+`prepare()` applies them in order, so a patch added later must not touch a file an
+earlier one already changed.
+
+### `0001`, running apps in the home overlay
+
+It touches three files:
 
 - `TasksView.qml` — exposes its existing `TaskManager.TasksModel` as
   `taskManagerModel`, adds `activateTask(index)`. **Do not instantiate a second
@@ -312,17 +326,72 @@ The app list is a `ListView`, not a `Repeater`, and the reasons are load-bearing
 before focusing Home, so the overlay always opens at the top of the list instead of
 wherever it was left.
 
+### `0002`, frosted launcher tiles
+
+It touches four files:
+
+- `components/bigscreenplugin/qml/AbstractDelegate.qml` — the frost, drawn under
+  the existing frame, which becomes translucent (`frostOpacity`).
+- `launcher/delegates/IconDelegate.qml` — sets `frostSourceItem` to
+  `Plasmoid.wallpaperGraphicsObject`, which is what turns the frost on for the
+  Favorites / Recent / Applications / Games rows, and pins the tile to black,
+  the selection border to `#e6e6e6` and the label to `#f5f5f5`.
+- `launcher/delegates/AppDelegate.qml`, `FavDelegate.qml` — drop `useIconColors`.
+
+Five things here are load-bearing:
+
+- **The frost is opt-in, and must stay opt-in.** `AbstractDelegate` is shared with
+  the home-overlay sidebar rows and the wallpaper picker, neither of which has a
+  wallpaper of its own behind it — they sit on a layer-shell window over whatever
+  is running. `frostSourceItem` defaults to null and `frosted` is derived from it,
+  so those delegates keep the opaque frame. Do not hoist the frost into the base
+  and gate it on a bool that defaults true.
+- **Each tile samples its own slice, at an eighth size.** `sourceRect` maps the
+  tile into wallpaper coordinates and `textureSize` downsamples; the downsample is
+  most of the blur, and `FastBlur` only softens what is left. Blurring at full
+  resolution per tile, or sharing one full-screen blur and masking it per tile, are
+  both much more expensive. `FastBlur` rather than `MultiEffect` for the same
+  reason `main.qml` gives for the wallpaper blur.
+- **The bare `delegate.x; delegate.y; …` reads in `sourceRect` are the binding.**
+  `mapToItem()` is a function call, not a property, so it registers no dependency
+  and the mapping would never re-run — the frost would stay pinned to wherever the
+  tile first appeared. Those statements look dead and are not. The `listView`
+  reads are what track scrolling, since a `ListView` moves its content item rather
+  than its delegates.
+- **`frostMask` follows `frame.radius`, not `baseRadius`.** The radius is animated
+  by the delegate's own `states` as the selection grows into its inset, so a mask
+  pinned to `baseRadius` desyncs from the frame for the length of every transition.
+- **The three tile colours are hardcoded on purpose, and the icon-colour
+  machinery is gone with them.** Upstream drove the tile, the label *and* the
+  selection border off `Kirigami.ImageColors` sampled from the app's own icon, so
+  the border came out in the same family as the tile behind it — that is the
+  original complaint, and re-deriving any of the three from the icon brings it
+  back. `IconDelegate` sets `Kirigami.Theme.inherit: false` so the assignments
+  actually stick. Removing `ImageColors` also removed the only reader of
+  `useIconColors`, and with it the only reader of the `coloredTiles` config key:
+  **the Coloured tiles switch in Bigscreen Settings is now inert.** Its KCM and
+  D-Bus plumbing are deliberately left alone — flipping it writes the key and
+  nothing looks at it. Do not "fix" the switch by wiring the icon palette back
+  in.
+
+The blurred wallpaper is sampled *before* the homescreen's black scrim, so a tile
+is brighter than the darkened background around it. That is what makes it read as
+glass. `frostOpacity` (0.6) is the frame's alpha over it — raise it for more colour
+and more contrast for the label, lower it for more wallpaper.
+
 After a rebuild, verification is:
 
 ```sh
-pacman -Qi plasma-bigscreen | grep -E '^(Version|Description)'   # 6.7.4-1.9, "(patched: ...)"
+pacman -Qi plasma-bigscreen | grep -E '^(Version|Description)'   # 6.7.4-1.11, "(patched: ...)"
 plasmashell --replace > /tmp/shell.log 2>&1 &                    # from the Bigscreen session
-grep -iE 'MainColumn|TasksView|HomeOverlayWindow|\.qml:[0-9]+' /tmp/shell.log
+grep -iE 'MainColumn|TasksView|HomeOverlayWindow|AbstractDelegate|IconDelegate|\.qml:[0-9]+' /tmp/shell.log
 qdbus6 | grep -i biglauncher                                     # Bigscreen shell is up
 ```
 
 A clean build proves nothing about runtime — QML errors only appear when the
-containment loads. Check the log.
+containment loads. Check the log. The frost in particular fails *silently*: a bad
+`sourceItem` or mask gives an empty or an unclipped tile, not a warning, so look at
+the screen as well as the log.
 
 ## Working on the keyboard patch
 
@@ -423,5 +492,6 @@ second time to close it, and confirm with a screenshot.
 Both patched packages install a **byte-identical file list** to stock
 `plasma-bigscreen` / `plasma-keyboard`. Any `pacman -Syu` that updates either reverts
 the patch with no warning and nothing looks broken. The only tell is `pacman -Qi`:
-pkgrel `1.9` and a `(patched: ...)` description. If a user reports the shortcuts "just
-disappeared" or the controller "stopped typing", check that first.
+pkgrel `1.11` (Bigscreen) / `1.9` (keyboard) and a `(patched: ...)` description. If a
+user reports the shortcuts "just disappeared", the tiles "went solid again" or the
+controller "stopped typing", check that first.

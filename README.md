@@ -69,7 +69,9 @@ Three steps, applied in order and undone in reverse:
 State lives in `$XDG_RUNTIME_DIR` (`tv-mode.displays.json`, `tv-mode.sink`), so a
 reboot always lands back on the desktop. Errors go to `$XDG_RUNTIME_DIR/tv-mode.log`.
 
-## The Bigscreen patch
+## The Bigscreen patches
+
+### Running apps in the home overlay
 
 Plasma Bigscreen's home overlay — the sidebar on the Home button — listed
 **Search**, a single **Tasks** button, and the settings toggles. Reaching a
@@ -95,6 +97,38 @@ Home then one press. Against upstream `v6.7.4`, 3 files:
 The old **Tasks** button stays, below the list and relabelled **All Open Apps**,
 so the grid overview with hold-to-close and *Close all apps* is still reachable.
 Nothing was removed.
+
+### Frosted launcher tiles
+
+The app tiles on the home screen are solid blocks of colour. With *coloured
+tiles* on, that colour is sampled from the app's own icon — and so is the border
+that marks the selected tile, so on a TV across the room the selection washes out
+against the tile it is drawn on.
+
+`plasma-bigscreen/0002-homescreen-frost-the-launcher-app-tiles.patch` makes them
+smoked glass instead: black over a blurred slice of the wallpaper, with an
+off-white selection border. The tile reads as a pane over the background rather
+than a slab sitting on it, the icon is the only colour on it, and the border has
+something to sit against. Against upstream `v6.7.4`, 4 files:
+
+- **`AbstractDelegate.qml`** — the frost itself, behind the existing frame, which
+  becomes translucent (`frostOpacity`, 0.6). It is **opt-in**: the whole thing
+  hangs off `frostSourceItem`, which stays null everywhere but the launcher, so
+  the sidebar rows and the wallpaper picker are untouched.
+- **`IconDelegate.qml`** — points `frostSourceItem` at
+  `Plasmoid.wallpaperGraphicsObject`, which frosts the Favorites, Recent,
+  Applications and Games rows, and fixes the tile to black (`#000`), the border
+  to `#e6e6e6` and the label to `#f5f5f5`.
+- **`AppDelegate.qml`** / **`FavDelegate.qml`** — drop `useIconColors`, now that
+  nothing samples the icon's palette.
+
+Each tile samples only its own slice of the wallpaper, at an eighth of its size —
+the downsample is most of the blur, and it costs a fraction of blurring at full
+resolution.
+
+> The **Coloured tiles** switch in Bigscreen Settings no longer does anything:
+> the tiles are black either way. Its D-Bus plumbing and the toggle are left in
+> place, so flipping it is harmless.
 
 ## The on-screen keyboard patch
 
@@ -243,8 +277,8 @@ cd ../plasma-keyboard && makepkg -si  # the patched on-screen keyboard
 plasmashell --replace                 # reload, from inside the Bigscreen session
 ```
 
-Both patched packages install as `6.7.4-1.9`, and **any `pacman -Syu` that updates
-either silently reverts it** — the file lists are identical to stock, so nothing
+The patched packages install as `6.7.4-1.11` (Bigscreen) and `6.7.4-1.9`
+(keyboard), and **any `pacman -Syu` that updates either silently reverts it** — the file lists are identical to stock, so nothing
 looks wrong. `pacman -Qi plasma-bigscreen plasma-keyboard` is the tell.
 
 Adapting the hardware constants to a different machine, the controller button
