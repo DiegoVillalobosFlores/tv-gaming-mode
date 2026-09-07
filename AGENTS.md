@@ -12,9 +12,10 @@ Three things that ship together because they are used together:
    only head, HDMI audio, Plasma Bigscreen shell) and back. `bin/apollo-display.sh`
    is a related Apollo/Sunshine prep-cmd; `bin/tv-mode-watch.sh` triggers the
    switch from the TV remote and `bin/tv-mode-boot.sh` from the game controller
-   after a boot, both over the shared `bin/tv-mode-input.sh` and each with a user
-   unit under `systemd/`. `udev/93-wolverine-wake.rules` arms the controller's
-   receiver as a wake source.
+   after a boot, and `bin/tv-mode-zoom.sh` puts KWin's magnifier on the
+   controller's bumpers while TV mode is on — all three over the shared
+   `bin/tv-mode-input.sh` and each with a user unit under `systemd/`.
+   `udev/93-wolverine-wake.rules` arms the controller's receiver as a wake source.
 2. **`plasma-bigscreen/`** — a patch against upstream Plasma Bigscreen `v6.7.4` that
    lists running apps inline in the home overlay sidebar, plus a PKGBUILD.
 3. **`plasma-keyboard/`** — a patch against upstream `plasma-keyboard` `v6.7.4` that
@@ -74,15 +75,24 @@ Each of these is load-bearing. Read the comment above it before touching it.
   Read that file when debugging; do not conclude "no output means it worked".
 - **State in `$XDG_RUNTIME_DIR`.** Deliberate: a reboot always lands back on the
   desktop. Do not move it somewhere persistent.
+- **`zoom_reset` on both switches, and `ZOOM_STEPS` duplicated.** KWin's magnifier
+  is session-wide state, so a zoom left on the TV is still there on the desktop —
+  where `tv-mode-zoom.sh` is gated off and no controller can walk it back. There
+  is no reset action in KWin, only repeated `view_zoom_out`, which is why this is
+  a loop; KWin clamps at 1.0 so the surplus calls are free. `ZOOM_STEPS` has to
+  stay equal to `MAX_STEPS` in `tv-mode-zoom.sh` — that is the ceiling the bumpers
+  can reach, so it is the number of steps that is guaranteed to undo it.
 
-## Working on the two watchers
+## Working on the three watchers
 
 `tv-mode-watch.sh` waits for `BTN_LEFT` on the TV remote's mouse node.
 `tv-mode-boot.sh` waits for any button on the game controller, once, for two
-minutes after login. Both end in `tv-mode.sh on`, and both get their `evtest`
-handling from `tv-mode-input.sh`, which is **sourced, never executed** — it
-defines `wait_for_event` and `require_input_group` and does nothing on its own.
-`install.sh` installs it mode 644 for that reason.
+minutes after login. Both end in `tv-mode.sh on`. `tv-mode-zoom.sh` is the odd
+one out: it never switches modes, it maps the pad's bumpers onto KWin's zoom for
+as long as TV mode is on. All three get their `evtest` handling from
+`tv-mode-input.sh`, which is **sourced, never executed** — it defines
+`wait_for_event`, `stream_events` and `require_input_group` and does nothing on
+its own. `install.sh` installs it mode 644 for that reason.
 
 ### `wait_for_event`
 
@@ -115,9 +125,26 @@ Two smaller ones that are easy to undo by tidying:
   compile. Keep patterns from starting with `*(`, which some shells read as an
   extglob.
 
+### `stream_events`
+
+The second function, and the one `tv-mode-zoom.sh` uses. It differs from
+`wait_for_event` in that it never returns on a match — it calls a handler
+function for every line until `evtest` exits.
+
+- **It uses a FIFO for a *different* reason.** Not latency this time: the loop
+  has to run in the calling shell so the handler can keep state across presses
+  (`steps` in `tv-mode-zoom.sh`). The obvious `evtest | while read` puts the loop
+  in a subshell and silently discards every variable it sets. `stdbuf` is still
+  there for the original reason.
+- **The handler must return 0.** It runs in the calling shell, so a non-zero
+  return trips the caller's `set -e` and takes the watcher down. Every branch of
+  `on_event` ends in an explicit `return 0`; do not "simplify" the trailing one
+  away, and note that a bare `case` whose last-evaluated command fails is enough
+  to do it.
+
 The node is read, never grabbed — no `EVIOCGRAB` — so the press still reaches
-the session. Reading `/dev/input` needs the `input` group; both scripts check for
-it at startup rather than looping on an unreadable device.
+the session. Reading `/dev/input` needs the `input` group; all three scripts
+check for it at startup rather than looping on an unreadable device.
 
 ### `tv-mode-boot.sh` specifically
 
@@ -138,6 +165,43 @@ it at startup rather than looping on an unreadable device.
   is still negotiating HDMI. The script waits, then lets `tv-mode.sh` make the
   real check. `HEAD` is duplicated at the top for the same reason
   `apollo-display.sh` duplicates it.
+
+### `tv-mode-zoom.sh` specifically
+
+- **KWin's magnifier, not a display rescale.** The tempting implementation is
+  `kscreen-doctor output.HDMI-A-1.scale.N`. It is wrong for the same reason
+  `displays_to_tv` is one single call: every scale change is its own atomic
+  kscreen commit that re-runs HDMI link training + HDCP, and the TV cannot hold a
+  4K120 HDR link through a stream of them — which is exactly what a bumper held
+  down produces. The magnifier is a compositor-side transform and touches no
+  output.
+- **`invokeShortcut` on the `kwin` component, not a synthetic `Meta+-`.** The key
+  binding is the user's to rebind and a synthetic keystroke would land in
+  whatever has focus; `view_zoom_in` / `view_zoom_out` are the action names and
+  they are stable. The effect has to be loaded — `isEffectLoaded zoom`.
+- **Two gates, both needed.** The TV-mode check keeps the desk sane: L1 and R1 are
+  two of the pad's most-used buttons, and a desktop that zooms when you play is
+  worse than no feature. The `pad_claimed` check keeps games sane. Removing
+  either makes the bumpers unusable somewhere.
+- **`pad_claimed` mirrors the keyboard patch's `scanForOtherReaders()`**, in
+  shell, over `fuser` — including checking the `jsN` sibling from sysfs, because
+  plenty of software opens that node instead. Both halves are load-bearing here
+  too: without the ignore list the scan always matches, since
+  `plasma-remotecontrollers`, Bigscreen's inputhandler, Steam and
+  `plasma-keyboard` hold every pad open all session. **`evtest` is in the list on
+  top of the patch's four** — our own reader is an `evtest`, and so is
+  `tv-mode-boot.sh`'s; leaving it out makes the script permanently stand down
+  against itself. `comm` is truncated to 15 characters by the kernel, which is
+  why the names are the odd-looking `plasma-remoteco` / `plasma-bigscree`.
+- **Zoom-in is clamped, zoom-out only floored.** `steps` counts our own presses,
+  so a `Meta++` from a keyboard desyncs it. Clamping the *out* direction on a
+  desynced counter would leave a visibly zoomed screen the couch cannot undo, so
+  L1 always fires and KWin's own clamp at 1.0 is the real floor. The in-direction
+  clamp is what stops a lean on the bumper stranding the session.
+- **No hold-to-repeat.** It was considered and rejected: the release event is one
+  packet over a 2.4GHz link, and a lost release would leave a repeater zooming to
+  the ceiling with the UI already too magnified to fix it. One step per press has
+  no state that can get stuck.
 
 ### The S5 wake itself
 
@@ -185,17 +249,20 @@ configuration.
 
 `tv-mode-watch.service` runs an `evtest` child of its own on the TV remote's
 mouse node for the whole session (`tv-mode-watch.sh` -> `evtest
-.../usb-123_COM_Smart_Control-if03-event-mouse`). A blanket `pkill -x evtest`
-while debugging the controller kills it. The watcher's loop re-spawns it, so
-`NRestarts` stays 0 and nothing looks wrong — you just silently lose the remote
-until the next iteration. Kill capture jobs by job spec or pid instead.
+.../usb-123_COM_Smart_Control-if03-event-mouse`), and `tv-mode-zoom.service` runs
+one on the pad's `-event-joystick` node — the very device you are most likely to
+be capturing. A blanket `pkill -x evtest` kills both. Each watcher's loop
+re-spawns it, so `NRestarts` stays 0 and nothing looks wrong — you just silently
+lose the remote, or the bumper zoom, until the next iteration. Kill capture jobs
+by job spec or pid instead.
 
 ### Enabling
 
-The units are installed by `install.sh` but **not enabled**. Do not enable
-either, or start a watcher, unless the user asks: they arm a remote or a
-controller to blank the user's monitors, and they invoke `tv-mode.sh on` — which
-the rest of this file explains you should not run uninvited.
+The units are installed by `install.sh` but **not enabled**. Do not enable any of
+them, or start a watcher, unless the user asks. Two of them arm a remote or a
+controller to blank the user's monitors and invoke `tv-mode.sh on`, which the
+rest of this file explains you should not run uninvited; `tv-mode-zoom.service`
+is milder but still reaches into the running session's compositor.
 
 ## Working on the Bigscreen patch
 

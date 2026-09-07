@@ -127,6 +127,25 @@ mangohud_restore() {
   rm -f "$MANGOFILE"
 }
 
+# --- zoom --------------------------------------------------------------
+# tv-mode-zoom.sh puts KWin's magnifier on the controller's bumpers, and the
+# magnifier is session-wide state: a zoom left on the TV is still there on the
+# desktop afterwards, where there is no controller to walk it back. Both
+# switches start from 1.0 instead.
+#
+# ZOOM_STEPS matches MAX_STEPS in tv-mode-zoom.sh - that is how far in the
+# bumpers can go, so that many steps out is how far back it can ever be. KWin
+# clamps at 1.0, so the surplus calls when it is already there do nothing.
+ZOOM_STEPS=8
+zoom_reset() {
+  i=0
+  while [ "$i" -lt "$ZOOM_STEPS" ]; do
+    qdbus6 org.kde.kglobalaccel /component/kwin \
+      org.kde.kglobalaccel.Component.invokeShortcut view_zoom_out >/dev/null 2>&1 || true
+    i=$((i + 1))
+  done
+}
+
 # --- shell -------------------------------------------------------------
 # Swapping the shell alone is not enough: plasma-bigscreen-inputhandler quits
 # immediately unless PLASMA_PLATFORM=mediacenter, so the TV remote (CEC) is dead
@@ -170,6 +189,7 @@ shell_restore() {
 
 case "${1:-toggle}" in
 on)
+  zoom_reset
   displays_to_tv
   audio_to_hdmi
   mangohud_disable
@@ -178,6 +198,7 @@ on)
   note "LG TV only, HDMI audio, MangoHud off, Bigscreen shell"
   ;;
 off)
+  zoom_reset
   shell_restore
   mangohud_restore
   audio_restore

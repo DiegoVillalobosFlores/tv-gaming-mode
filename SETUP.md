@@ -159,9 +159,9 @@ Debugging: the watcher logs to the journal, not to `tv-mode.log`.
 journalctl --user -u tv-mode-watch.service -f
 ```
 
-Both this and `tv-mode-boot.sh` below share their `evtest` plumbing through
-`tv-mode-input.sh`, which `install.sh` drops alongside them. It is sourced, not
-run, so it is installed non-executable.
+This, `tv-mode-boot.sh` and `tv-mode-zoom.sh` below share their `evtest` plumbing
+through `tv-mode-input.sh`, which `install.sh` drops alongside them. It is
+sourced, not run, so it is installed non-executable.
 
 ### Optional: land a controller-started boot in TV mode
 
@@ -173,6 +173,68 @@ A press on the game controller in the first two minutes after login switches the
 machine over, so a boot started from the couch ends up on the TV and a boot
 started at the desk does not. Powering the machine on with the controller in the
 first place is a BIOS matter — both halves are in §6.
+
+### Optional: zoom the screen from the controller's bumpers
+
+```sh
+systemctl --user enable --now tv-mode-zoom.service
+```
+
+**L1 zooms out, R1 zooms in**, driving KWin's screen magnifier — the effect
+already bound to <kbd>Meta</kbd>+<kbd>-</kbd> / <kbd>Meta</kbd>+<kbd>+</kbd>. It
+is what makes small text on a 4K TV readable from a sofa without getting up for a
+keyboard. Same two prerequisites as the remote watcher above: `evtest`, and
+membership of the `input` group.
+
+The magnifier has to be on for anything to happen — System Settings → Desktop
+Effects → *Zoom*, or:
+
+```sh
+qdbus6 org.kde.KWin /Effects org.kde.kwin.Effects.isEffectLoaded zoom   # true
+```
+
+The pad is the hardware constant at the top of the script, the same node
+`tv-mode-boot.sh` uses, and the two buttons are next to it:
+
+```sh
+DEV=/dev/input/by-id/usb-Razer_Razer_Wolverine_V3_Pro_for_Xbox_2.4-event-joystick
+BTN_OUT=310       # BTN_TL, left bumper
+BTN_IN=311        # BTN_TR, right bumper
+```
+
+For a different pad, confirm the node and the codes — `-event-joystick` is the
+one carrying the shoulder buttons, and an Xbox-style pad reports `BTN_TL` /
+`BTN_TR` there:
+
+```sh
+ls /dev/input/by-id/
+evtest /dev/input/by-id/<yours>-event-joystick    # press L1 and R1, read the codes
+```
+
+It stays out of the way twice over: it does nothing while `tv-mode.sh status`
+says `off`, so at the desk the bumpers are just bumpers, and nothing while
+another process holds the pad open, so a game keeps them. That second check is
+the same `/proc/*/fd` scan the on-screen keyboard patch makes in §5, with the
+same ignore list — `plasma-remotecontrollers`, Bigscreen's input handler, Steam,
+`plasma-keyboard`, and `evtest` itself, all of which hold every pad for the whole
+session. Verify who is holding it with:
+
+```sh
+fuser -v /dev/input/by-id/usb-Razer_Razer_Wolverine_V3_Pro_for_Xbox_2.4-event-joystick \
+         /dev/input/js1
+```
+
+Zoom-in stops after 8 presses (KWin's step is 1.2×, so about 4.3× in total);
+zoom-out is never blocked, and KWin stops at 1.0 on its own. `tv-mode.sh` resets
+the magnifier on both switches, so a zoom left on the TV does not reappear on the
+desktop where there is no controller to undo it. To change the ceiling, keep
+`MAX_STEPS` in `tv-mode-zoom.sh` and `ZOOM_STEPS` in `tv-mode.sh` equal.
+
+Debugging: like the other watchers, it logs to the journal.
+
+```sh
+journalctl --user -u tv-mode-zoom.service -f
+```
 
 ---
 
@@ -365,6 +427,14 @@ qdbus6 org.kde.biglauncher /BigLauncher org.kde.biglauncher.resetDisplayHomeScre
 
 `org.kde.biglauncher` is only on the bus while the Bigscreen shell is running.
 
+### Zoom
+
+L1 and R1 magnify the screen while TV mode is on — a third mechanism again,
+`tv-mode-zoom.sh` reading `/dev/input` and firing KWin's `view_zoom_out` /
+`view_zoom_in` through `kglobalaccel`. It is off unless its unit is enabled; see
+§3. It stands down while a game holds the pad, so it does not eat the bumpers
+mid-game.
+
 ### Typing
 
 The on-screen keyboard is driven by the same controller, through a different
@@ -431,7 +501,8 @@ done
 # press Home, A, the D-pad... then stop just these three:
 #   kill %1 %2 %3
 # Do NOT use "pkill -x evtest": tv-mode-watch.service runs an evtest of its
-# own on the TV remote, and pkill takes that down too.
+# own on the TV remote and tv-mode-zoom.service one on this very pad, and
+# pkill takes both down too.
 ```
 
 The answer for this receiver is unambiguous. Over a 90-second capture with Home

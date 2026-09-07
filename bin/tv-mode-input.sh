@@ -70,3 +70,36 @@ wait_for_event() {
   rm -f "$_fifo"
   return "$_rc"
 }
+
+# stream_events DEV HANDLER
+#
+# Calls HANDLER with every line evtest prints for DEV, and returns when evtest
+# exits - which is how an unplugged receiver shows up. Unlike wait_for_event
+# this never stops on its own, so it is for mapping a device rather than
+# waiting on one press.
+#
+# The FIFO is here for a second reason than it is up there. The loop has to run
+# in the *calling* shell so the handler can keep state across presses; the
+# obvious "evtest | while read" puts the loop in a subshell and every variable
+# it sets is discarded at EOF. stdbuf is needed for the same reason as above.
+#
+# HANDLER must return 0. It is called in the calling shell, so a non-zero
+# return trips set -e and takes the whole watcher down.
+stream_events() {
+  _dev=$1
+  _handler=$2
+  _fifo="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/tv-mode-input.$$.fifo"
+
+  rm -f "$_fifo"
+  mkfifo "$_fifo"
+  stdbuf -oL evtest "$_dev" >"$_fifo" 2>/dev/null &
+  _reader=$!
+
+  while read -r _line; do
+    "$_handler" "$_line"
+  done < "$_fifo"
+
+  kill "$_reader" 2>/dev/null || true
+  wait "$_reader" 2>/dev/null || true
+  rm -f "$_fifo"
+}

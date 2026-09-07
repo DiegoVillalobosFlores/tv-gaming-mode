@@ -1,0 +1,17 @@
+[Unit]
+Description=Zoom the screen from the controller's bumpers while in TV mode
+# Bound to the graphical session: it drives KWin's magnifier over the session
+# bus, which does not exist before it or survive after it.
+PartOf=graphical-session.target
+After=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/tv-mode-zoom.sh
+# The script loops over hot-plug on its own; a restart here is for the cases it
+# cannot handle itself, such as evtest not being installed yet.
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=graphical-session.target

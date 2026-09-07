@@ -33,10 +33,12 @@ Agents working in this repo should start with [AGENTS.md](AGENTS.md).
 | `bin/apollo-display.sh` | Apollo/Sunshine `prep-cmd` that does the same head swap for game streaming. |
 | `bin/tv-mode-watch.sh` | Watches the TV remote and switches into TV mode on its first click. |
 | `bin/tv-mode-boot.sh` | Lands a boot in TV mode when it was started from the game controller. |
-| `bin/tv-mode-input.sh` | The `evtest` plumbing both watchers source. |
+| `bin/tv-mode-zoom.sh` | Puts KWin's screen magnifier on the controller's bumpers while in TV mode. |
+| `bin/tv-mode-input.sh` | The `evtest` plumbing the watchers source. |
 | `desktop/tv-mode.desktop` | Launcher, with *Switch to the TV* / *Back to the desktop* actions. |
 | `systemd/tv-mode-watch.service` | User unit that runs the watcher for the graphical session. |
 | `systemd/tv-mode-boot.service` | User unit that runs the boot check once per login. |
+| `systemd/tv-mode-zoom.service` | User unit that runs the bumper-zoom mapping for the graphical session. |
 | `udev/93-wolverine-wake.rules` | Arms the controller's receiver as a system wake source. |
 | `plasma-bigscreen/` | A patch against Plasma Bigscreen 6.7.4, plus a PKGBUILD that builds it. |
 | `plasma-keyboard/` | A patch against Plasma's on-screen keyboard 6.7.4 adding game-controller input, plus a PKGBUILD. |
@@ -167,6 +169,37 @@ clicks are ordinary clicks, and going back to the desktop re-arms it. If the TV
 is off the head is not on the bus at all, `tv-mode.sh` says so and the watcher
 backs off for 30 seconds rather than repeating the notification on every click.
 
+## Zooming the TV from the couch
+
+A 4K panel across a living room turns small text into no text at all, and nothing
+on the TV — not Bigscreen, not a browser running inside it — has a zoom a
+controller can reach. So the shoulder buttons get one:
+
+```sh
+systemctl --user enable --now tv-mode-zoom.service
+```
+
+**L1 zooms out, R1 zooms in.** `bin/tv-mode-zoom.sh` reads the pad's joystick
+node and fires KWin's own `view_zoom_out` / `view_zoom_in` actions — the ones
+already bound to <kbd>Meta</kbd>+<kbd>-</kbd> and <kbd>Meta</kbd>+<kbd>+</kbd> —
+over `kglobalaccel`, rather than synthesising a keystroke that would land in
+whatever has focus.
+
+It is the compositor's magnifier and not a display rescale, deliberately: a scale
+change is a fresh `kscreen-doctor` commit, and the TV cannot hold a 4K120 HDR
+link through a stream of those. The magnifier is a compositor-side transform and
+touches no output at all.
+
+Two gates keep the bumpers ordinary bumpers the rest of the time. It does nothing
+**while TV mode is off** — at the desk L1 and R1 are two of the pad's most-used
+buttons — and nothing **while a game holds the pad**, found by the same scan of
+`/proc/*/fd` the on-screen keyboard patch makes, with the same ignore list for
+the session infrastructure that keeps every pad open all the time. Zooming in
+stops after 8 presses (~4.3×) so the session can never be stranded somewhere it
+takes thirty presses to leave; zooming out is never blocked, and `tv-mode.sh`
+resets the magnifier on both switches so a zoom left on the TV does not follow
+you back to a desktop with no controller on it.
+
 ## Starting the machine from the couch
 
 Pressing **Home** on the controller to wake a machine that is fully off, and
@@ -204,7 +237,7 @@ button that opens the Bigscreen overlay once you are there.
 ## Installing
 
 ```sh
-./install.sh                          # scripts, launcher and unit into ~/.local
+./install.sh                          # scripts, launcher and units into ~/.local
 cd plasma-bigscreen && makepkg -si    # the patched Bigscreen package
 cd ../plasma-keyboard && makepkg -si  # the patched on-screen keyboard
 plasmashell --replace                 # reload, from inside the Bigscreen session
