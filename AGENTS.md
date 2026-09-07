@@ -58,6 +58,16 @@ Each of these is load-bearing. Read the comment above it before touching it.
   the layer's own `disable_environment`, so the layer never loads. It is pushed
   through `dbus-update-activation-environment --systemd` because that is what
   Bigscreen's app launches inherit. Games already running keep their HUD.
+- **`keyboard_restart` on both switches.** The head swap passes through a moment
+  with no outputs, and `plasma-keyboard` answers that by creating a placeholder
+  screen it never gives back — every later paint fails with `eglSwapBuffers
+  failed with 0x300d` and the on-screen keyboard silently never appears again.
+  The process stays alive and keeps reading the pad, so it is still summoned and
+  still grabs: the visible symptom is *both* a missing keyboard and a controller
+  that dies in whichever app has a text field focused. Killing it is the whole
+  fix and costs nothing — KWin owns it as the session's input method and
+  relaunches it on demand. Do not "optimise" the restart away, and do not move it
+  before the `kscreen-doctor` commit: it has to run once the output set is final.
 - **Modes addressed by name, never by id.** kscreen renumbers mode ids between runs,
   so a saved id restores the wrong mode.
 - **`exec 2>>"$XDG_RUNTIME_DIR/tv-mode.log"`.** Errors are not on your terminal.

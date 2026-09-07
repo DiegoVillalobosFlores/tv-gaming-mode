@@ -84,6 +84,19 @@ displays_restore() {
   rm -f "$STATE"
 }
 
+# --- on-screen keyboard ------------------------------------------------
+# The head swap passes through a moment with no outputs at all, and
+# plasma-keyboard answers that by creating a placeholder screen it never gives
+# back: every later paint fails with "eglSwapBuffers failed with 0x300d"
+# (EGL_BAD_SURFACE) and the keyboard silently stops appearing for the rest of
+# the session -- the process is alive and still reading the pad, it just cannot
+# put pixels anywhere. Restarting it is the whole fix, and it is free: KWin
+# owns plasma-keyboard as the session's input method and relaunches it on
+# demand, so this only has to be run after the output set is final.
+keyboard_restart() {
+  pkill -x plasma-keyboard 2>/dev/null || true
+}
+
 # --- MangoHud ----------------------------------------------------------
 # Disable the overlay outright rather than hiding it: MangoHud's own
 # no_display=1 still loads the Vulkan layer into every game. The layer's
@@ -160,6 +173,7 @@ on)
   displays_to_tv
   audio_to_hdmi
   mangohud_disable
+  keyboard_restart
   shell_to_tv
   note "LG TV only, HDMI audio, MangoHud off, Bigscreen shell"
   ;;
@@ -168,6 +182,7 @@ off)
   mangohud_restore
   audio_restore
   displays_restore
+  keyboard_restart
   note "Back to the desktop"
   ;;
 toggle)
