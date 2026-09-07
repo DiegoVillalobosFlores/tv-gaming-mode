@@ -189,10 +189,11 @@ check for it at startup rather than looping on an unreadable device.
   plenty of software opens that node instead. Both halves are load-bearing here
   too: without the ignore list the scan always matches, since
   `plasma-remotecontrollers`, Bigscreen's inputhandler, Steam and
-  `plasma-keyboard` hold every pad open all session. **`evtest` is in the list on
-  top of the patch's four** — our own reader is an `evtest`, and so is
-  `tv-mode-boot.sh`'s; leaving it out makes the script permanently stand down
-  against itself. `comm` is truncated to 15 characters by the kernel, which is
+  `plasma-keyboard` hold every pad open all session. The two lists have to stay in step, and
+  **`evtest` is on both** — our own reader is an `evtest`, and so is
+  `tv-mode-boot.sh`'s. Leaving it out here makes the script stand down against
+  itself; leaving it out of the patch's makes the *keyboard* stand down for as
+  long as this watcher runs, which is the whole session. `comm` is truncated to 15 characters by the kernel, which is
   why the names are the odd-looking `plasma-remoteco` / `plasma-bigscree`.
 - **Zoom-in is clamped, zoom-out only floored.** `steps` counts our own presses,
   so a `Meta++` from a keyboard desyncs it. Clamping the *out* direction on a
@@ -424,6 +425,12 @@ not a broken patch.
   the Steam client each hold every pad open for the whole session. Verified on this
   machine: with Monster Hunter Wilds running, `winedevice.exe` is the only
   non-infrastructure holder. Do not add `gamescope` or a game launcher to the list.
+  **`evtest` is on the list too, and was added late.** `tv-mode-zoom.sh` reads the
+  pad through one for as long as TV mode is on, so without it the keyboard counts
+  our own watcher as a game and stands down for the entire session — it never
+  summons and never grabs, and the symptom is a controller that has just stopped
+  typing with nothing else visibly wrong. Both watchers only read the node;
+  neither grabs it, so a pad they hold is still free.
 - **The grab excludes `BTN_MODE`.** `EVIOCGRAB` is all-or-nothing, so while the panel
   is up it would swallow the controller's Home button — the one
   `plasma-remotecontrollers` turns into the Bigscreen home-overlay key. The grab is
@@ -492,6 +499,6 @@ second time to close it, and confirm with a screenshot.
 Both patched packages install a **byte-identical file list** to stock
 `plasma-bigscreen` / `plasma-keyboard`. Any `pacman -Syu` that updates either reverts
 the patch with no warning and nothing looks broken. The only tell is `pacman -Qi`:
-pkgrel `1.11` (Bigscreen) / `1.9` (keyboard) and a `(patched: ...)` description. If a
+pkgrel `1.11` (Bigscreen) / `1.10` (keyboard) and a `(patched: ...)` description. If a
 user reports the shortcuts "just disappeared", the tiles "went solid again" or the
 controller "stopped typing", check that first.

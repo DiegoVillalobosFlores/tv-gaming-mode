@@ -218,7 +218,7 @@ new file mode 100644
 index 0000000..de4dede
 --- /dev/null
 +++ b/src/gamepadlistener.cpp
-@@ -0,0 +1,695 @@
+@@ -0,0 +1,701 @@
 +/*
 +    SPDX-FileCopyrightText: 2026 Diego Villalobos <diegovillalobos397@gmail.com>
 +
@@ -284,6 +284,12 @@ index 0000000..de4dede
 +        QStringLiteral("plasma-bigscree"), // plasma-bigscreen-inputhandler
 +        QStringLiteral("steam"),
 +        QStringLiteral("steamwebhelper"),
++        // Our own watchers: tv-mode-zoom.sh holds the pad open for as long as
++        // TV mode is on and tv-mode-boot.sh for two minutes after login. Both
++        // only read the node - they never grab it - so a pad they hold is
++        // still free. Without this the zoom watcher stands the keyboard down
++        // for the whole session, which looks exactly like a dead controller.
++        QStringLiteral("evtest"),
 +    };
 +    return names;
 +}

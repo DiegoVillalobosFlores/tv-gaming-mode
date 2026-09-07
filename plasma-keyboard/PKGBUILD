@@ -3,7 +3,7 @@
 pkgname=plasma-keyboard
 pkgver=6.7.4
 _dirver=$(echo $pkgver | cut -d. -f1-3)
-pkgrel=1.9
+pkgrel=1.10
 pkgdesc='Virtual Keyboard for Qt based desktops (patched: driven by a game controller)'
 arch=(x86_64)
 url='https://kde.org/plasma-desktop/'
@@ -18,7 +18,7 @@ options=(!debug)
 source=(https://download.kde.org/stable/plasma/$_dirver/$pkgname-$pkgver.tar.xz
         0001-gamepad-navigation-for-the-on-screen-keyboard.patch)
 sha256sums=('7bbcf6df3e4f3aa2f0c59e33fdc5cfc93377c04369283f1900be8f7b8fe194a1'
-            'e85b946169113c66464d06949c2c1d2958fc7667a7de038c0d93041f726a2113')
+            'fac05122367a68abc86e9f77cc785fe50a599754b753cc79c3afab7fc48ce132')
 
 prepare() {
   patch -d $pkgname-$pkgver -p1 < 0001-gamepad-navigation-for-the-on-screen-keyboard.patch

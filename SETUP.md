@@ -289,7 +289,7 @@ cd plasma-keyboard
 makepkg -si
 ```
 
-Installs as **`6.7.4-1.9`** with the description `(patched: driven by a game
+Installs as **`6.7.4-1.10`** with the description `(patched: driven by a game
 controller)`. The keyboard is respawned by KWin on demand, so there is no shell
 reload — just restart it:
 

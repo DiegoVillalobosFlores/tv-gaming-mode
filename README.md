@@ -277,7 +277,7 @@ cd ../plasma-keyboard && makepkg -si  # the patched on-screen keyboard
 plasmashell --replace                 # reload, from inside the Bigscreen session
 ```
 
-The patched packages install as `6.7.4-1.11` (Bigscreen) and `6.7.4-1.9`
+The patched packages install as `6.7.4-1.11` (Bigscreen) and `6.7.4-1.10`
 (keyboard), and **any `pacman -Syu` that updates either silently reverts it** — the file lists are identical to stock, so nothing
 looks wrong. `pacman -Qi plasma-bigscreen plasma-keyboard` is the tell.
 
