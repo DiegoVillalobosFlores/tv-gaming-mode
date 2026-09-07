@@ -1,5 +1,5 @@
 diff --git a/components/bigscreenplugin/qml/AbstractDelegate.qml b/components/bigscreenplugin/qml/AbstractDelegate.qml
-index 8b3c0fc..2f10314 100644
+index 8b3c0fc..d71a091 100644
 --- a/components/bigscreenplugin/qml/AbstractDelegate.qml
 +++ b/components/bigscreenplugin/qml/AbstractDelegate.qml
 @@ -9,6 +9,7 @@ import QtQuick
@@ -27,7 +27,24 @@ index 8b3c0fc..2f10314 100644
      z: isCurrent ? 2 : 0
  
      onClicked: {
-@@ -85,11 +96,79 @@ QQC2.ItemDelegate {
+@@ -77,19 +88,95 @@ QQC2.ItemDelegate {
+                 color: delegate.Kirigami.Theme.highlightColor
+             }
+             opacity: delegate.isCurrent || delegate.highlighted
++            // NumberAnimation, not the OpacityAnimator upstream had here.
++            // An Animator runs on the render thread and only writes its value
++            // back to the property when it finishes; on the false -> true
++            // transition here it never does, so the selection border sat at
++            // opacity 0 and was never drawn on a tile the user navigated to.
++            // A tile that is already current when it is created takes opacity 1
++            // straight from the binding, which is why the frame still animated
++            // into its inset and only the border was missing.
+             Behavior on opacity {
+-                OpacityAnimator {
++                NumberAnimation {
+                     duration: Kirigami.Units.longDuration/2
+                     easing.type: Easing.InOutQuad
+                 }
              }
          }
  
@@ -133,7 +150,7 @@ index 9c18901..813f314 100644
      icon.name: modelData.ApplicationIconRole
      text: modelData ? modelData.ApplicationNameRole : ""
 diff --git a/containments/homescreen/package/contents/ui/launcher/delegates/IconDelegate.qml b/containments/homescreen/package/contents/ui/launcher/delegates/IconDelegate.qml
-index 9e801ca..70ffcfb 100644
+index 9e801ca..aabce68 100644
 --- a/containments/homescreen/package/contents/ui/launcher/delegates/IconDelegate.qml
 +++ b/containments/homescreen/package/contents/ui/launcher/delegates/IconDelegate.qml
 @@ -11,6 +11,7 @@ import QtQuick.Controls as QQC2
@@ -168,11 +185,11 @@ index 9e801ca..70ffcfb 100644
 +    // Smoked glass, not colour. Upstream tinted the tile, its label and its
 +    // selection border all from the icon's own palette, so the border came out
 +    // in the same family as the tile it was drawn on and washed out from across
-+    // the room. Black tile, off-white border, and the icon supplies the only
++    // the room. Black tile, white border, and the icon supplies the only
 +    // colour on the tile.
 +    Kirigami.Theme.inherit: false
 +    Kirigami.Theme.backgroundColor: "black"
-+    Kirigami.Theme.highlightColor: "#e6e6e6"
++    Kirigami.Theme.highlightColor: "white"
 +    Kirigami.Theme.textColor: "#f5f5f5"
  
      contentItem: Item {

@@ -106,19 +106,21 @@ that marks the selected tile, so on a TV across the room the selection washes ou
 against the tile it is drawn on.
 
 `plasma-bigscreen/0002-homescreen-frost-the-launcher-app-tiles.patch` makes them
-smoked glass instead: black over a blurred slice of the wallpaper, with an
-off-white selection border. The tile reads as a pane over the background rather
+smoked glass instead: black over a blurred slice of the wallpaper, with a
+white selection border. The tile reads as a pane over the background rather
 than a slab sitting on it, the icon is the only colour on it, and the border has
 something to sit against. Against upstream `v6.7.4`, 4 files:
 
 - **`AbstractDelegate.qml`** — the frost itself, behind the existing frame, which
   becomes translucent (`frostOpacity`, 0.6). It is **opt-in**: the whole thing
   hangs off `frostSourceItem`, which stays null everywhere but the launcher, so
-  the sidebar rows and the wallpaper picker are untouched.
+  the sidebar rows and the wallpaper picker are untouched. It also swaps the
+  selection border's `OpacityAnimator` for a `NumberAnimation`, which is what
+  makes the border appear at all — see [AGENTS.md](AGENTS.md).
 - **`IconDelegate.qml`** — points `frostSourceItem` at
   `Plasmoid.wallpaperGraphicsObject`, which frosts the Favorites, Recent,
   Applications and Games rows, and fixes the tile to black (`#000`), the border
-  to `#e6e6e6` and the label to `#f5f5f5`.
+  to white and the label to `#f5f5f5`.
 - **`AppDelegate.qml`** / **`FavDelegate.qml`** — drop `useIconColors`, now that
   nothing samples the icon's palette.
 
@@ -279,7 +281,7 @@ cd ../plasma-keyboard && makepkg -si  # the patched on-screen keyboard
 plasmashell --replace                 # reload, from inside the Bigscreen session
 ```
 
-The patched packages install as `6.7.4-1.11` (Bigscreen) and `6.7.4-1.10`
+The patched packages install as `6.7.4-1.16` (Bigscreen) and `6.7.4-1.10`
 (keyboard), and **any `pacman -Syu` that updates either silently reverts it** — the file lists are identical to stock, so nothing
 looks wrong. `pacman -Qi plasma-bigscreen plasma-keyboard` is the tell.
 

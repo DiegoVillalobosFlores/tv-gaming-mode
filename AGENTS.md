@@ -350,14 +350,27 @@ wherever it was left.
 It touches four files:
 
 - `components/bigscreenplugin/qml/AbstractDelegate.qml` — the frost, drawn under
-  the existing frame, which becomes translucent (`frostOpacity`).
+  the existing frame, which becomes translucent (`frostOpacity`), and the
+  selection border's opacity `Behavior` switched off `OpacityAnimator`.
 - `launcher/delegates/IconDelegate.qml` — sets `frostSourceItem` to
   `Plasmoid.wallpaperGraphicsObject`, which is what turns the frost on for the
   Favorites / Recent / Applications / Games rows, and pins the tile to black,
-  the selection border to `#e6e6e6` and the label to `#f5f5f5`.
+  the selection border to white and the label to `#f5f5f5`.
 - `launcher/delegates/AppDelegate.qml`, `FavDelegate.qml` — drop `useIconColors`.
 
-Five things here are load-bearing:
+Six things here are load-bearing:
+
+- **The selection border animates with a `NumberAnimation`, not upstream's
+  `OpacityAnimator`.** This is what made the white border invisible on the
+  launcher: an `Animator` runs on the render thread and only writes its value
+  back to the property when the animation finishes, and on the false -> true
+  transition here it never did, so `highlight.opacity` sat at 0 for good. The
+  give-away is that everything *else* about selection still worked — the tile
+  grew into its inset, `isCurrent` was true, and the rectangle was visible,
+  sized, parented and `#ffffff` — because those do not go through the Behavior.
+  A tile that is already current when it is created takes opacity 1 straight
+  from the binding, so a naive test never reproduces it; drive the selection
+  onto a tile instead.
 
 - **The frost is opt-in, and must stay opt-in.** `AbstractDelegate` is shared with
   the home-overlay sidebar rows and the wallpaper picker, neither of which has a
@@ -401,7 +414,7 @@ and more contrast for the label, lower it for more wallpaper.
 After a rebuild, verification is:
 
 ```sh
-pacman -Qi plasma-bigscreen | grep -E '^(Version|Description)'   # 6.7.4-1.15, "(patched: ...)"
+pacman -Qi plasma-bigscreen | grep -E '^(Version|Description)'   # 6.7.4-1.16, "(patched: ...)"
 plasmashell --replace > /tmp/shell.log 2>&1 &                    # from the Bigscreen session
 grep -iE 'MainColumn|TasksView|HomeOverlayWindow|AbstractDelegate|IconDelegate|\.qml:[0-9]+' /tmp/shell.log
 qdbus6 | grep -i biglauncher                                     # Bigscreen shell is up
@@ -546,6 +559,6 @@ second time to close it, and confirm with a screenshot.
 Both patched packages install a **byte-identical file list** to stock
 `plasma-bigscreen` / `plasma-keyboard`. Any `pacman -Syu` that updates either reverts
 the patch with no warning and nothing looks broken. The only tell is `pacman -Qi`:
-pkgrel `1.11` (Bigscreen) / `1.10` (keyboard) and a `(patched: ...)` description. If a
+pkgrel `1.16` (Bigscreen) / `1.10` (keyboard) and a `(patched: ...)` description. If a
 user reports the shortcuts "just disappeared", the tiles "went solid again" or the
 controller "stopped typing", check that first.

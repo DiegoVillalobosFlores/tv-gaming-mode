@@ -249,7 +249,7 @@ makepkg -si
 ```
 
 This fetches `plasma-bigscreen-6.7.4.tar.xz` from `download.kde.org`, verifies all
-three checksums, applies both patches, builds, and installs as **`6.7.4-1.11`**.
+three checksums, applies both patches, builds, and installs as **`6.7.4-1.16`**.
 
 Then reload the shell:
 
@@ -267,7 +267,7 @@ the desktop shell instead.
 pacman -Qi plasma-bigscreen | grep -E '^(Version|Description)'
 ```
 
-Patched: `6.7.4-1.11` and `(patched: running apps listed in the home overlay
+Patched: `6.7.4-1.16` and `(patched: running apps listed in the home overlay
 sidebar, frosted launcher tiles)`. Stock: `6.7.4-1.1` and `Plasma shell for TVs`.
 
 > **This is reverted by any `pacman -Syu` that updates `plasma-bigscreen`**, with no
