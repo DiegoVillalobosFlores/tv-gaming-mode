@@ -181,7 +181,10 @@ systemctl --user enable --now tv-mode-zoom.service
 ```
 
 **L1 zooms out, R1 zooms in**, driving KWin's screen magnifier — the effect
-already bound to <kbd>Meta</kbd>+<kbd>-</kbd> / <kbd>Meta</kbd>+<kbd>+</kbd>. It
+already bound to <kbd>Meta</kbd>+<kbd>-</kbd> / <kbd>Meta</kbd>+<kbd>+</kbd>. The
+script does not grab the pad, so Bigscreen sees the presses too; the patched shell
+(`plasma-bigscreen/0003-…`) leaves the bumpers alone and cycles focus from L2/R2
+instead, and an unpatched one will jump focus on every zoom step. It
 is what makes small text on a 4K TV readable from a sofa without getting up for a
 keyboard. Same two prerequisites as the remote watcher above: `evtest`, and
 membership of the `input` group.

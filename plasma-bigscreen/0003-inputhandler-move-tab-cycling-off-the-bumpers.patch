@@ -1,0 +1,52 @@
+diff --git a/inputhandler/sdlcontroller.cpp b/inputhandler/sdlcontroller.cpp
+--- a/inputhandler/sdlcontroller.cpp
++++ b/inputhandler/sdlcontroller.cpp
+@@ -303,8 +303,12 @@
+           {SDL_GAMEPAD_BUTTON_EAST, {KEY_CANCEL, KEY_ESC}}, // BTN_EAST (B/Circle) -> Cancel/Escape
+           {SDL_GAMEPAD_BUTTON_WEST, {KEY_MENU}}, // BTN_WEST (X/Square) -> Menu
+           {SDL_GAMEPAD_BUTTON_NORTH, {KEY_UNKNOWN}}, // BTN_NORTH (Y/Triangle) - no evdev mapping
+-          {SDL_GAMEPAD_BUTTON_LEFT_SHOULDER, {KEY_LEFTSHIFT, KEY_TAB}}, // BTN_TL -> Shift+Tab (previous)
+-          {SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER, {KEY_TAB}}, // BTN_TR -> Tab (next)
++          // Bumpers are left free: tv-mode-zoom.sh reads them off the pad for
++          // KWin's magnifier without grabbing the device, so anything bound
++          // here fires at the same time as a zoom step. Tab cycling moved to
++          // the triggers, which had nothing of their own.
++          {SDL_GAMEPAD_BUTTON_LEFT_SHOULDER, {KEY_UNKNOWN}}, // BTN_TL - reserved for zoom out
++          {SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER, {KEY_UNKNOWN}}, // BTN_TR - reserved for zoom in
+           {SDL_GAMEPAD_BUTTON_BACK, {KEY_BACK}}, // Select/Back -> Back
+           {SDL_GAMEPAD_BUTTON_DPAD_UP, {KEY_UP}}, // D-Pad Up
+           {SDL_GAMEPAD_BUTTON_DPAD_DOWN, {KEY_DOWN}}, // D-Pad Down
+@@ -329,9 +333,9 @@
+     keys.insert(KEY_LEFT);
+     keys.insert(KEY_RIGHT);
+ 
+-    // Add keys for triggers
+-    keys.insert(KEY_BACK);
+-    keys.insert(KEY_FORWARD);
++    // Add keys for the triggers, which are axes and so not in m_buttons
++    keys.insert(KEY_LEFTSHIFT);
++    keys.insert(KEY_TAB);
+ 
+     setUsedKeys(keys);
+ 
+@@ -503,15 +507,16 @@
+             m_axisLeftYDirection = newDirection;
+         }
+     }
+-    // Handle left trigger (L2)
++    // Handle left trigger (L2) -> Shift+Tab (previous)
+     else if (axis == SDL_GAMEPAD_AXIS_LEFT_TRIGGER) {
+         bool pressed = (value > AXIS_THRESHOLD);
+-        setKey(KEY_BACK, pressed);
++        setKey(KEY_LEFTSHIFT, pressed);
++        setKey(KEY_TAB, pressed);
+     }
+-    // Handle right trigger (R2)
++    // Handle right trigger (R2) -> Tab (next)
+     else if (axis == SDL_GAMEPAD_AXIS_RIGHT_TRIGGER) {
+         bool pressed = (value > AXIS_THRESHOLD);
+-        setKey(KEY_FORWARD, pressed);
++        setKey(KEY_TAB, pressed);
+     }
+     // Handle right stick X axis (mouse horizontal movement)
+     else if (axis == SDL_GAMEPAD_AXIS_RIGHTX) {

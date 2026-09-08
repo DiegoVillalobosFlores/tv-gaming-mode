@@ -228,7 +228,9 @@ Two gates keep the bumpers ordinary bumpers the rest of the time. It does nothin
 **while TV mode is off** — at the desk L1 and R1 are two of the pad's most-used
 buttons — and nothing **while a game holds the pad**, found by the same scan of
 `/proc/*/fd` the on-screen keyboard patch makes, with the same ignore list for
-the session infrastructure that keeps every pad open all the time. Zooming in
+the session infrastructure that keeps every pad open all the time. Inside
+Bigscreen neither gate applies, so the shell's own bumper bindings were moved to
+the triggers instead — `plasma-bigscreen/0003-…`. Zooming in
 stops after 8 presses (~4.3×) so the session can never be stranded somewhere it
 takes thirty presses to leave; zooming out is never blocked, and `tv-mode.sh`
 resets the magnifier on both switches so a zoom left on the TV does not follow

@@ -1,11 +1,11 @@
 # Rebuild of Arch's plasma-bigscreen with the home-overlay task-shortcuts and
-# frosted-launcher-tile patches.
+# frosted-launcher-tile and trigger-tab-cycling patches.
 # Tracks the upstream PKGBUILD by Antonio Rojas <arojas@archlinux.org>.
 pkgname=plasma-bigscreen
 pkgver=6.7.4
 _dirver=$(echo $pkgver | cut -d. -f1-3)
-pkgrel=1.11
-pkgdesc='Plasma shell for TVs (patched: running apps listed in the home overlay sidebar, frosted launcher tiles)'
+pkgrel=1.15
+pkgdesc='Plasma shell for TVs (patched: running apps listed in the home overlay sidebar, frosted launcher tiles, tab cycling on the triggers)'
 arch=(x86_64)
 url='https://plasma-bigscreen.org/'
 license=(GPL-2.0-or-later)
@@ -20,14 +20,17 @@ groups=(plasma)
 options=(!debug)
 source=(https://download.kde.org/stable/plasma/$_dirver/$pkgname-$pkgver.tar.xz
         0001-homescreen-list-running-apps-in-home-overlay.patch
-        0002-homescreen-frost-the-launcher-app-tiles.patch)
+        0002-homescreen-frost-the-launcher-app-tiles.patch
+        0003-inputhandler-move-tab-cycling-off-the-bumpers.patch)
 sha256sums=('5fb76e3777ce03bd4ded119fb169efeb308a38f43dec009197158abec134441c'
             'fb36fb6c9329548cb3c22ab7c8a0c29ea4bd4830524ac0bd6fbb735f71a9c042'
-            '24b4514fbcb3d2e41fafb7dfe1ff0ef5bf6b02ad3c152dfbf50c4dde6d3d14d8')
+            '24b4514fbcb3d2e41fafb7dfe1ff0ef5bf6b02ad3c152dfbf50c4dde6d3d14d8'
+            '5cd12cbeff9d7acc46149ec632abe32a235017e568696241b15cc80bdce5f2b6')
 
 prepare() {
   patch -d $pkgname-$pkgver -p1 < 0001-homescreen-list-running-apps-in-home-overlay.patch
   patch -d $pkgname-$pkgver -p1 < 0002-homescreen-frost-the-launcher-app-tiles.patch
+  patch -d $pkgname-$pkgver -p1 < 0003-inputhandler-move-tab-cycling-off-the-bumpers.patch
 }
 
 build() {

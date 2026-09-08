@@ -16,9 +16,11 @@ Three things that ship together because they are used together:
    controller's bumpers while TV mode is on — all three over the shared
    `bin/tv-mode-input.sh` and each with a user unit under `systemd/`.
    `udev/93-wolverine-wake.rules` arms the controller's receiver as a wake source.
-2. **`plasma-bigscreen/`** — two patches against upstream Plasma Bigscreen `v6.7.4`:
+2. **`plasma-bigscreen/`** — three patches against upstream Plasma Bigscreen `v6.7.4`:
    one lists running apps inline in the home overlay sidebar, one restyles the
-   launcher's app tiles as smoked glass. Plus a PKGBUILD that applies both.
+   launcher's app tiles as smoked glass, one moves the input handler's tab cycling
+   off the bumpers so `tv-mode-zoom.sh` can have them. Plus a PKGBUILD that applies
+   all three.
 3. **`plasma-keyboard/`** — a patch against upstream `plasma-keyboard` `v6.7.4` that
    lets a game controller drive the on-screen keyboard, plus a PKGBUILD.
 
@@ -194,7 +196,9 @@ check for it at startup rather than looping on an unreadable device.
 - **Two gates, both needed.** The TV-mode check keeps the desk sane: L1 and R1 are
   two of the pad's most-used buttons, and a desktop that zooms when you play is
   worse than no feature. The `pad_claimed` check keeps games sane. Removing
-  either makes the bumpers unusable somewhere.
+  either makes the bumpers unusable somewhere. Neither gate helps inside Bigscreen
+  itself, which is why `0003` had to move the shell's own bumper bindings — see
+  *Working on the Bigscreen patches*.
 - **`pad_claimed` mirrors the keyboard patch's `scanForOtherReaders()`**, in
   shell, over `fuser` — including checking the `jsN` sibling from sysfs, because
   plenty of software opens that node instead. Both halves are load-bearing here
@@ -284,9 +288,9 @@ resource, and the shared delegates into the `org.kde.bigscreen` QML module. Edit
 QML under `/usr/lib/qt6/qml/` or in a Plasma package directory has no effect — the
 shell loads the baked-in copy. Every change means a rebuild.
 
-The two patches are disjoint — `0001` is the home overlay, `0002` is the launcher —
-so regenerate them one at a time from a clean checkout rather than diffing a tree
-that has both applied:
+The three patches are disjoint — `0001` is the home overlay, `0002` the launcher,
+`0003` the input handler — so regenerate them one at a time from a clean checkout
+rather than diffing a tree that has them all applied:
 
 ```sh
 git clone --depth 1 -b v6.7.4 https://invent.kde.org/plasma/plasma-bigscreen.git
@@ -295,7 +299,10 @@ git diff > plasma-bigscreen/0001-homescreen-list-running-apps-in-home-overlay.pa
 git checkout -- .
 # edit AbstractDelegate.qml / launcher/delegates/IconDelegate.qml
 git diff > plasma-bigscreen/0002-homescreen-frost-the-launcher-app-tiles.patch
-# update both sha256s in the PKGBUILD, then:
+git checkout -- .
+# edit inputhandler/sdlcontroller.cpp
+git diff > plasma-bigscreen/0003-inputhandler-move-tab-cycling-off-the-bumpers.patch
+# update all three sha256s in the PKGBUILD, then:
 cd plasma-bigscreen && makepkg -si
 ```
 
@@ -394,7 +401,7 @@ and more contrast for the label, lower it for more wallpaper.
 After a rebuild, verification is:
 
 ```sh
-pacman -Qi plasma-bigscreen | grep -E '^(Version|Description)'   # 6.7.4-1.11, "(patched: ...)"
+pacman -Qi plasma-bigscreen | grep -E '^(Version|Description)'   # 6.7.4-1.15, "(patched: ...)"
 plasmashell --replace > /tmp/shell.log 2>&1 &                    # from the Bigscreen session
 grep -iE 'MainColumn|TasksView|HomeOverlayWindow|AbstractDelegate|IconDelegate|\.qml:[0-9]+' /tmp/shell.log
 qdbus6 | grep -i biglauncher                                     # Bigscreen shell is up
@@ -404,6 +411,35 @@ A clean build proves nothing about runtime — QML errors only appear when the
 containment loads. Check the log. The frost in particular fails *silently*: a bad
 `sourceItem` or mask gives an empty or an unclipped tile, not a warning, so look at
 the screen as well as the log.
+
+### `0003`, tab cycling on the triggers
+
+Upstream's SDL backend hands the shell evdev keys from a table in
+`SdlDevice`'s member initialiser (`inputhandler/sdlcontroller.cpp`). There is no
+config for it — `plasma-bigscreen-inputhandlerrc` only carries the on/off toggles
+from `inputhandlersettings.kcfg` — so a rebinding is a source patch.
+
+The patch swaps two pairs. `BTN_TL`/`BTN_TR` gave `Shift+Tab`/`Tab`; they now give
+`KEY_UNKNOWN`. `ABS_Z`/`ABS_RZ`, the analog triggers, gave `KEY_BACK`/`KEY_FORWARD`;
+they now give `Shift+Tab`/`Tab`.
+
+- **The bumpers had to be the ones freed.** `tv-mode-zoom.sh` reads them off the
+  pad without grabbing the device, so Bigscreen sees every press the zoom watcher
+  does — a magnify step and a focus jump on the same button.
+- **The triggers were the only free pair.** `KEY_FORWARD` has no consumer anywhere
+  in the shell, and `KEY_BACK` from `ABS_Z` only duplicated Select and B, both of
+  which still emit it. Nothing was lost. The other unbound controls were not
+  candidates: Y is a single button, not a pair, and L3/R3 are `BTN_RIGHT`/`BTN_LEFT`
+  — `processButtonEvent()` intercepts them before the table lookup, and they are the
+  click half of the right-stick cursor that summons the keyboard under
+  `VirtualKeyboardMode=2`.
+- **The trigger keys must be added to `setUsedKeys()` by hand.** It is built by
+  walking `m_buttons`, and the triggers are axes, so `KEY_LEFTSHIFT` and `KEY_TAB`
+  are no longer reachable from that walk. Miss this and `ControllerManager` never
+  advertises them on the virtual keyboard, and the triggers do nothing at all.
+- **L2/R2 are the on-screen keyboard's Shift and Enter too, and that is fine.**
+  `plasma-keyboard` takes an exclusive grab while it is shown, so the input handler
+  sees no trigger events at all in that window. The two bindings never overlap.
 
 ## Working on the keyboard patch
 
