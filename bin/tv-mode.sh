@@ -19,6 +19,7 @@ STATE="$XDG_RUNTIME_DIR/tv-mode.displays.json"
 SINKFILE="$XDG_RUNTIME_DIR/tv-mode.sink"
 MANGOFILE="$XDG_RUNTIME_DIR/tv-mode.mangohud"
 VKBDFILE="$XDG_RUNTIME_DIR/tv-mode.vkbd"
+CURSORFILE="$XDG_RUNTIME_DIR/tv-mode.cursor"
 exec 2>>"$XDG_RUNTIME_DIR/tv-mode.log"
 
 note() { notify-send -a "TV mode" -i video-television "TV mode" "$1" 2>/dev/null || true; }
@@ -139,6 +140,86 @@ keyboard_restore() {
   rm -f "$VKBDFILE"
 }
 
+# --- cursor ------------------------------------------------------------
+# The pointer is not how the TV is driven: the controller navigates with the
+# d-pad and the buttons, and the mouse cursor is a leftover - from the desk, or
+# from the last time the remote's pointer was waved at something - parked on top
+# of the tile being looked at.
+#
+# KWin already hides it on key input, in the "hidecursor" effect, and every
+# controller press *is* a key event by the time it reaches KWin:
+# plasma-remotecontrollers maps the pad and injects the result either through
+# /dev/uinput or through KWin's fake-input protocol, and both land in the same
+# input redirection the effect filters. So the effect is the whole feature, and
+# the next pointer move brings the cursor back on its own.
+#
+# InactivityDuration is set to 0 - the KCM's "Never" - so only input hides the
+# cursor. Hiding it after a pause is not what is wanted here: on a TV the
+# pointer is slow to re-find, and losing it while still looking at where it was
+# left is worse than leaving it up.
+#
+# The effect is off by default and its two settings live in kwinrc, so all three
+# are saved and put back on the way out, as with the keyboard mode above. It is
+# loaded over D-Bus rather than by writing Plugins/hidecursorEnabled, which
+# needs a full KWin reconfigure - every setting KWin has re-read for the sake of
+# one effect.
+CURSOR_EFFECT=hidecursor
+
+cursor_loaded() {
+  [ "$(qdbus6 org.kde.KWin /Effects org.kde.kwin.Effects.isEffectLoaded \
+        "$CURSOR_EFFECT" 2>/dev/null)" = true ]
+}
+
+cursor_get() {
+  kreadconfig6 --file kwinrc --group "Effect-$CURSOR_EFFECT" --key "$1" 2>/dev/null
+}
+
+# An empty value is a key that was not in kwinrc at all; deleting it is the
+# restore, because writing "" back would leave the effect reading an empty
+# string where it expects a number or a bool.
+cursor_set() {
+  if [ -n "$2" ]; then
+    kwriteconfig6 --file kwinrc --group "Effect-$CURSOR_EFFECT" --key "$1" "$2"
+  else
+    kwriteconfig6 --file kwinrc --group "Effect-$CURSOR_EFFECT" --key "$1" --delete
+  fi
+}
+
+cursor_effect() {
+  qdbus6 org.kde.KWin /Effects "org.kde.kwin.Effects.$1" "$CURSOR_EFFECT" \
+    >/dev/null 2>&1 || true
+}
+
+cursor_to_tv() {
+  if cursor_loaded; then WAS=loaded; else WAS=unloaded; fi
+  DUR=$(cursor_get InactivityDuration) || DUR=
+  TYPING=$(cursor_get HideOnTyping) || TYPING=
+  printf '%s\n%s\n%s\n' "$WAS" "$DUR" "$TYPING" > "$CURSORFILE"
+
+  cursor_set InactivityDuration 0
+  cursor_set HideOnTyping true
+  # loadEffect does nothing to an effect that is already loaded, and it is the
+  # reconfigure that makes the two settings above apply to this session; both
+  # are needed because either state is possible here.
+  cursor_effect loadEffect
+  cursor_effect reconfigureEffect
+}
+
+cursor_restore() {
+  [ -f "$CURSORFILE" ] || return 0
+  WAS=$(sed -n 1p "$CURSORFILE")
+  cursor_set InactivityDuration "$(sed -n 2p "$CURSORFILE")"
+  cursor_set HideOnTyping "$(sed -n 3p "$CURSORFILE")"
+  # Only unload an effect this script loaded. Someone who runs the desktop with
+  # the cursor hidden keeps it, on their own settings.
+  if [ "$WAS" = loaded ]; then
+    cursor_effect reconfigureEffect
+  else
+    cursor_effect unloadEffect
+  fi
+  rm -f "$CURSORFILE"
+}
+
 # --- MangoHud ----------------------------------------------------------
 # Disable the overlay outright rather than hiding it: MangoHud's own
 # no_display=1 still loads the Vulkan layer into every game. The layer's
@@ -237,12 +318,14 @@ on)
   mangohud_disable
   keyboard_restart
   keyboard_to_tv
+  cursor_to_tv
   shell_to_tv
-  note "LG TV only, HDMI audio, MangoHud off, on-screen keyboard on, Bigscreen shell"
+  note "LG TV only, HDMI audio, MangoHud off, on-screen keyboard on, cursor hidden on the pad, Bigscreen shell"
   ;;
 off)
   zoom_reset
   shell_restore
+  cursor_restore
   keyboard_restore
   mangohud_restore
   audio_restore
