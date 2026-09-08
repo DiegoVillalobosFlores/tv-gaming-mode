@@ -23,13 +23,16 @@ install -m 644 systemd/tv-mode-watch.service systemd/tv-mode-boot.service \
                systemd/tv-mode-zoom.service "$UNITS/"
 
 # Bigscreen's input handler drives the pointer through the RemoteDesktop portal,
-# so the portal asks "Plasma Bigscreen is asking for special privileges: control
-# input devices" the first time. The portal names the asker after its systemd
-# unit, and tv-mode.sh starts the shell through plasma-bigscreen-swap-session,
-# so the handler inherits *that* app id - answering the prompt under any other
-# id does not stop it coming back. Pre-answer it here; the store is persistent.
+# so the portal asks for "special privileges: control input devices" the first
+# time. The portal names the asker after the app.slice unit it lives in, which
+# is whatever *started* the handler, not the handler itself: launching from the
+# desktop entry makes it "tv-mode", and tv-mode.sh's own swap makes it
+# "plasma-bigscreen-swap-session". Approving one leaves the others unanswered,
+# so the prompt returns by a different door. Pre-answer every door here; the
+# store is persistent. The watch/boot/zoom units are not in app.slice, so the
+# handler they start asks under the empty app id, which KDE already allows.
 if command -v gdbus >/dev/null 2>&1; then
-  for app in plasma-bigscreen-swap-session plasma-bigscreen-inputhandler \
+  for app in tv-mode plasma-bigscreen-swap-session plasma-bigscreen-inputhandler \
              org.kde.plasma.bigscreen.inputhandler org.kde.plasma-remotecontrollers; do
     gdbus call --session --dest org.freedesktop.impl.portal.PermissionStore \
       --object-path /org/freedesktop/impl/portal/PermissionStore \
