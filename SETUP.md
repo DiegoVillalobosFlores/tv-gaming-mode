@@ -249,7 +249,7 @@ makepkg -si
 ```
 
 This fetches `plasma-bigscreen-6.7.4.tar.xz` from `download.kde.org`, verifies all
-three checksums, applies both patches, builds, and installs as **`6.7.4-1.16`**.
+four checksums, applies the three patches, builds, and installs as **`6.7.4-1.16`**.
 
 Then reload the shell:
 
@@ -268,7 +268,8 @@ pacman -Qi plasma-bigscreen | grep -E '^(Version|Description)'
 ```
 
 Patched: `6.7.4-1.16` and `(patched: running apps listed in the home overlay
-sidebar, frosted launcher tiles)`. Stock: `6.7.4-1.1` and `Plasma shell for TVs`.
+sidebar, frosted launcher tiles, tab cycling on the triggers)`. Stock: `6.7.4-1.1`
+and `Plasma shell for TVs`.
 
 > **This is reverted by any `pacman -Syu` that updates `plasma-bigscreen`**, with no
 > warning — the patched package installs exactly the same file list as stock, so
@@ -279,7 +280,8 @@ sidebar, frosted launcher tiles)`. Stock: `6.7.4-1.1` and `Plasma shell for TVs`
 > `containments/homescreen/package/contents/ui/homeoverlay/`; `0002` touches
 > `components/bigscreenplugin/qml/AbstractDelegate.qml` and the `Icon`, `App` and
 > `Fav` delegates under
-> `containments/homescreen/package/contents/ui/launcher/delegates/`.
+> `containments/homescreen/package/contents/ui/launcher/delegates/`; `0003`
+> touches `inputhandler/sdlcontroller.cpp`.
 
 ---
 
