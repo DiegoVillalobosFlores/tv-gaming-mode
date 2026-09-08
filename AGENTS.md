@@ -70,6 +70,17 @@ Each of these is load-bearing. Read the comment above it before touching it.
   fix and costs nothing — KWin owns it as the session's input method and
   relaunches it on demand. Do not "optimise" the restart away, and do not move it
   before the `kscreen-doctor` commit: it has to run once the output set is final.
+- **The virtual-keyboard mode is set over D-Bus, and restored from a saved
+  value.** `keyboard_to_tv` puts KWin's `VirtualKeyboardMode` on 2 (touch, tablet
+  *and* mouse) so a text field clicked with the remote's pointer or the
+  controller's cursor actually opens the keyboard; 0 and 1 leave X-to-summon as
+  the only way in. The `qdbus6 ... Properties.Set` is not a detour around
+  `kwriteconfig6`: KWin applies the property live *and* writes it through to
+  `kwinrc` itself, so there is no `reconfigure` to fire and no window where the
+  file and the compositor disagree. It is orthogonal to `keyboard_restart` —
+  that is the process, this is whether KWin offers it at all. `keyboard_to_tv`
+  only records a mode it actually read, because a KWin that did not answer would
+  otherwise be restored as an empty value over a real setting.
 - **Modes addressed by name, never by id.** kscreen renumbers mode ids between runs,
   so a saved id restores the wrong mode.
 - **`exec 2>>"$XDG_RUNTIME_DIR/tv-mode.log"`.** Errors are not on your terminal.

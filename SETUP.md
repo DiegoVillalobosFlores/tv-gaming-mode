@@ -330,6 +330,29 @@ group (`id -nG | grep input`).
 Copied from the Steam Deck's on-screen keyboard, so it needs no learning. X does
 double duty because the two states never overlap.
 
+### Touch, tablet and mouse
+
+X-to-summon is the controller's way in; whether a *pointer* gets one is KWin's
+call, from **System Settings → Virtual Keyboard → Show the virtual keyboard**
+(`VirtualKeyboardMode` under `[Wayland]` in `kwinrc`): `0` never, `1` with touch
+and tablet input, `2` with touch, tablet and mouse as well. On `0` or `1` a text
+field clicked with the TV remote's pointer or the controller's cursor just sits
+there.
+
+`tv-mode.sh on` sets it to `2` and `off` puts the previous value back, so the
+desktop keeps whatever you had. It is set over D-Bus, which applies it live and
+writes it to `kwinrc` in one go:
+
+```sh
+qdbus6 org.kde.KWin /VirtualKeyboard org.kde.kwin.VirtualKeyboard.mode          # read
+qdbus6 org.kde.KWin /VirtualKeyboard org.freedesktop.DBus.Properties.Set \
+  org.kde.kwin.VirtualKeyboard mode 2                                          # write
+```
+
+The old value is remembered in `$XDG_RUNTIME_DIR/tv-mode.vkbd`, so a session that
+dies in TV mode leaves the mode on `2`; set it back by hand or run `tv-mode.sh
+off` once.
+
 ### While a game is running
 
 The keyboard stands down completely — no summoning, no grabbing, no navigation —

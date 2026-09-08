@@ -18,6 +18,7 @@ export DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-unix:path=$XDG_RUNT
 STATE="$XDG_RUNTIME_DIR/tv-mode.displays.json"
 SINKFILE="$XDG_RUNTIME_DIR/tv-mode.sink"
 MANGOFILE="$XDG_RUNTIME_DIR/tv-mode.mangohud"
+VKBDFILE="$XDG_RUNTIME_DIR/tv-mode.vkbd"
 exec 2>>"$XDG_RUNTIME_DIR/tv-mode.log"
 
 note() { notify-send -a "TV mode" -i video-television "TV mode" "$1" 2>/dev/null || true; }
@@ -95,6 +96,47 @@ displays_restore() {
 # demand, so this only has to be run after the output set is final.
 keyboard_restart() {
   pkill -x plasma-keyboard 2>/dev/null || true
+}
+
+# Whether the keyboard is offered at all is KWin's call, not plasma-keyboard's,
+# and it is one setting: VirtualKeyboardMode, 0 = never, 1 = with touch and
+# tablet input, 2 = with touch, tablet and mouse. A desktop sits on 0 or 1,
+# where a pointer click into a text field summons nothing -- which on the TV
+# means the remote's pointer and the controller's cursor can both reach a field
+# they cannot type into. TV mode forces 2 and puts the old value back on the way
+# out; nothing here replaces the controller's own X-to-summon, it is what makes
+# the other two inputs work.
+#
+# Set over D-Bus rather than with kwriteconfig6 because KWin applies the change
+# live *and* writes it through to kwinrc itself, so there is no reconfigure to
+# trigger and no window where the file and the running compositor disagree. It
+# is a property rather than a method, hence the Properties.Set spelling on the
+# write; the read has a short form and uses it.
+VKBD_TV=2
+vkbd_get() {
+  qdbus6 org.kde.KWin /VirtualKeyboard org.kde.kwin.VirtualKeyboard.mode 2>/dev/null
+}
+
+vkbd_set() {
+  qdbus6 org.kde.KWin /VirtualKeyboard org.freedesktop.DBus.Properties.Set \
+    org.kde.kwin.VirtualKeyboard mode "$1" >/dev/null 2>&1 || true
+}
+
+keyboard_to_tv() {
+  PREV=$(vkbd_get) || PREV=
+  # Only record a mode that was actually read. A KWin that did not answer must
+  # not be remembered as an empty value and then restored over a real setting.
+  # An "if", not a trailing AND-list, whose failing test would trip set -e.
+  if [ -n "$PREV" ]; then
+    echo "$PREV" > "$VKBDFILE"
+  fi
+  vkbd_set "$VKBD_TV"
+}
+
+keyboard_restore() {
+  [ -f "$VKBDFILE" ] || return 0
+  vkbd_set "$(cat "$VKBDFILE")"
+  rm -f "$VKBDFILE"
 }
 
 # --- MangoHud ----------------------------------------------------------
@@ -194,12 +236,14 @@ on)
   audio_to_hdmi
   mangohud_disable
   keyboard_restart
+  keyboard_to_tv
   shell_to_tv
-  note "LG TV only, HDMI audio, MangoHud off, Bigscreen shell"
+  note "LG TV only, HDMI audio, MangoHud off, on-screen keyboard on, Bigscreen shell"
   ;;
 off)
   zoom_reset
   shell_restore
+  keyboard_restore
   mangohud_restore
   audio_restore
   displays_restore
