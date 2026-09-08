@@ -21,6 +21,11 @@ MANGOFILE="$XDG_RUNTIME_DIR/tv-mode.mangohud"
 VKBDFILE="$XDG_RUNTIME_DIR/tv-mode.vkbd"
 CURSORFILE="$XDG_RUNTIME_DIR/tv-mode.cursor"
 exec 2>>"$XDG_RUNTIME_DIR/tv-mode.log"
+# A successful run says nothing at all, so the log reads as empty and a failed
+# launch from the Bigscreen shell leaves no trace of what it was even asked to
+# do. Record the argv, and the status, whenever the run does not end at 0.
+echo "[$(date -Is)] tv-mode.sh ${*:-toggle} (pid $$)" >&2
+trap 'rc=$?; if [ "$rc" -ne 0 ]; then echo "[$(date -Is)] failed with status $rc" >&2; fi' EXIT
 
 note() { notify-send -a "TV mode" -i video-television "TV mode" "$1" 2>/dev/null || true; }
 
@@ -301,8 +306,12 @@ shell_restore() {
   # Legacy cleanup: shells started by the pre-swap-session version of this script
   # are not systemd-managed, so the unit restart below would leave them running
   # and we would end up with two shells fighting over the session.
-  [ -f "$XDG_RUNTIME_DIR/tv-mode.shell.pid" ] &&
-    kill "$(cat "$XDG_RUNTIME_DIR/tv-mode.shell.pid")" 2>/dev/null
+  # An "[ -f x ] && cmd" here is an AND-OR list whose status is 1 when the file
+  # is absent - which is the normal case - and "set -e" can take the script out
+  # on it before the shell is ever restarted. Spell it out as an if instead.
+  if [ -f "$XDG_RUNTIME_DIR/tv-mode.shell.pid" ]; then
+    kill "$(cat "$XDG_RUNTIME_DIR/tv-mode.shell.pid")" 2>/dev/null || true
+  fi
   rm -f "$XDG_RUNTIME_DIR/tv-mode.shell.pid"
   pkill -f "plasmashell -p org.kde.plasma.bigscreen" 2>/dev/null || true
   systemctl --user start plasma-plasmashell.service ||
@@ -312,25 +321,36 @@ shell_restore() {
 
 case "${1:-toggle}" in
 on)
-  zoom_reset
+  zoom_reset || true
+  # displays_to_tv stays fatal: it has its own "is the TV even on the bus"
+  # pre-flight, and there is no point dressing the session for a TV that is
+  # not there. Everything between it and the shell swap is a comfort setting
+  # though - HDMI audio in particular is missing whenever the TV has not
+  # settled on this input yet - and none of them are worth landing on the TV
+  # with no Bigscreen shell, which is what aborting here used to do.
   displays_to_tv
-  audio_to_hdmi
-  mangohud_disable
-  keyboard_restart
-  keyboard_to_tv
-  cursor_to_tv
+  audio_to_hdmi || true
+  mangohud_disable || true
+  keyboard_restart || true
+  keyboard_to_tv || true
+  cursor_to_tv || true
   shell_to_tv
   note "LG TV only, HDMI audio, MangoHud off, on-screen keyboard on, cursor hidden on the pad, Bigscreen shell"
   ;;
 off)
-  zoom_reset
-  shell_restore
-  cursor_restore
-  keyboard_restore
-  mangohud_restore
-  audio_restore
-  displays_restore
-  keyboard_restart
+  # Every step here is best-effort. Under "set -e" a single non-zero restore
+  # used to abort the rest of the sequence, and the two steps that actually
+  # get you out - displays_restore and shell_restore - sit at the end of it:
+  # the session was left on a dark TV, DP-1 still disabled, Bigscreen still
+  # up, with no way back. A restore that fails must not take the others down.
+  zoom_reset || true
+  shell_restore || true
+  cursor_restore || true
+  keyboard_restore || true
+  mangohud_restore || true
+  audio_restore || true
+  displays_restore || true
+  keyboard_restart || true
   note "Back to the desktop"
   ;;
 toggle)
