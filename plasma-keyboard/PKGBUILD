@@ -1,7 +1,7 @@
 # Rebuild of Arch's plasma-keyboard with the gamepad-navigation patch.
 # Tracks the upstream PKGBUILD by Antonio Rojas <arojas@archlinux.org>.
 pkgname=plasma-keyboard
-pkgver=6.7.4
+pkgver=6.7.5
 _dirver=$(echo $pkgver | cut -d. -f1-3)
 pkgrel=1.10
 pkgdesc='Virtual Keyboard for Qt based desktops (patched: driven by a game controller)'
@@ -17,7 +17,7 @@ groups=(plasma)
 options=(!debug)
 source=(https://download.kde.org/stable/plasma/$_dirver/$pkgname-$pkgver.tar.xz
         0001-gamepad-navigation-for-the-on-screen-keyboard.patch)
-sha256sums=('7bbcf6df3e4f3aa2f0c59e33fdc5cfc93377c04369283f1900be8f7b8fe194a1'
+sha256sums=('0dd91212308e6c6999db55b95b5b462cadc2766935272e9caf2f138b9a063788'
             'fac05122367a68abc86e9f77cc785fe50a599754b753cc79c3afab7fc48ce132')
 
 prepare() {

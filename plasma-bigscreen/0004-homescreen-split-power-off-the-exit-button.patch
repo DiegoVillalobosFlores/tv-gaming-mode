@@ -1,0 +1,62 @@
+diff --git a/containments/homescreen/package/contents/ui/homeoverlay/ColumnActionsRow.qml b/containments/homescreen/package/contents/ui/homeoverlay/ColumnActionsRow.qml
+index 37e9b99..7615378 100644
+--- a/containments/homescreen/package/contents/ui/homeoverlay/ColumnActionsRow.qml
++++ b/containments/homescreen/package/contents/ui/homeoverlay/ColumnActionsRow.qml
+@@ -76,7 +76,7 @@ RowLayout {
+ 
+         QQC2.ToolTip.visible: focus
+         QQC2.ToolTip.text: i18n("Wi-Fi")
+-        KeyNavigation.right: shutdownButton
++        KeyNavigation.right: exitButton
+         onClicked: Plasmoid.openSettings("kcm_mediacenter_wifi")
+ 
+         PlasmaNM.ConnectionIcon {
+@@ -84,22 +84,37 @@ RowLayout {
+         }
+     }
+ 
++    // Leaving Bigscreen and powering the machine off are two separate actions
++    // here, rather than upstream's one button that is whichever the launch
++    // reason says. A session started by plasma-bigscreen-swap-session reports
++    // "swap" for as long as it lives, so upstream's button is *only* ever the
++    // exit -- which leaves a swapped-in session with no way to reach the logout
++    // greeter at all. KeyNavigation skips items that are not visible, so the
++    // right-chain stays correct when this one is hidden.
++    Bigscreen.Button {
++        id: exitButton
++        flat: true
++        visible: Bigscreen.Global.launchReason === "swap"
++        icon.name: "window-close"
++
++        QQC2.ToolTip.visible: focus
++        QQC2.ToolTip.text: i18n("Exit Bigscreen")
++        KeyNavigation.right: shutdownButton
++
++        onClicked: Bigscreen.Global.swapSession()
++    }
++
+     Bigscreen.Button {
+         id: shutdownButton
+         flat: true
+-        icon.name: Bigscreen.Global.launchReason === "swap" ? "window-close" : "system-shutdown"
++        icon.name: "system-shutdown"
+ 
+         QQC2.ToolTip.visible: focus
+-        QQC2.ToolTip.text: i18n("Shutdown")
+-
+-        onClicked: (event)=> {
+-            if (Bigscreen.Global.launchReason === "swap") {
+-                Bigscreen.Global.swapSession();
+-            } else {
+-                // Prompt all since we don't have any other way of doing it.
+-                Bigscreen.Global.promptLogoutGreeter("promptAll");
+-            }
+-        }
++        QQC2.ToolTip.text: i18n("Power")
++
++        // The same greeter Ctrl+Alt+Del raises: log out, reboot, shut down.
++        // promptAll because there is no way to ask for one of them on its own.
++        onClicked: Bigscreen.Global.promptLogoutGreeter("promptAll")
+     }
+ 
+     Item { Layout.fillWidth: true }

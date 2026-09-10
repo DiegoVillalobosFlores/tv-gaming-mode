@@ -40,8 +40,8 @@ Agents working in this repo should start with [AGENTS.md](AGENTS.md).
 | `systemd/tv-mode-boot.service` | User unit that runs the boot check once per login. |
 | `systemd/tv-mode-zoom.service` | User unit that runs the bumper-zoom mapping for the graphical session. |
 | `udev/93-wolverine-wake.rules` | Arms the controller's receiver as a system wake source. |
-| `plasma-bigscreen/` | A patch against Plasma Bigscreen 6.7.4, plus a PKGBUILD that builds it. |
-| `plasma-keyboard/` | A patch against Plasma's on-screen keyboard 6.7.4 adding game-controller input, plus a PKGBUILD. |
+| `plasma-bigscreen/` | Four patches against Plasma Bigscreen 6.7.5, plus a PKGBUILD that builds them. |
+| `plasma-keyboard/` | A patch against Plasma's on-screen keyboard 6.7.5 adding game-controller input, plus a PKGBUILD. |
 | `install.sh` | Copies the scripts, launcher and unit into `~/.local` and `~/.config`. |
 | `SETUP.md` | Full setup and configuration guide. |
 | `AGENTS.md` | Invariants and unsafe commands, for coding agents. |
@@ -79,7 +79,7 @@ running app meant Home, then Tasks, then hunting the grid.
 
 `plasma-bigscreen/0001-homescreen-list-running-apps-in-home-overlay.patch` lists
 the running apps inline in that sidebar, one shortcut each, so switching apps is
-Home then one press. Against upstream `v6.7.4`, 3 files:
+Home then one press. Against upstream `v6.7.5`, 3 files:
 
 - **`TasksView.qml`** — exposes its existing `TaskManager.TasksModel` as
   `taskManagerModel` and adds `activateTask(index)`. No second model is created.
@@ -109,7 +109,7 @@ against the tile it is drawn on.
 smoked glass instead: black over a blurred slice of the wallpaper, with a
 white selection border. The tile reads as a pane over the background rather
 than a slab sitting on it, the icon is the only colour on it, and the border has
-something to sit against. Against upstream `v6.7.4`, 4 files:
+something to sit against. Against upstream `v6.7.5`, 4 files:
 
 - **`AbstractDelegate.qml`** — the frost itself, behind the existing frame, which
   becomes translucent (`frostOpacity`, 0.6). It is **opt-in**: the whole thing
@@ -132,6 +132,20 @@ resolution.
 > the tiles are black either way. Its D-Bus plumbing and the toggle are left in
 > place, so flipping it is harmless.
 
+### A power button that is actually reachable
+
+Upstream's home overlay has one button in the slot after Wi-Fi, and what it does
+depends on how the shell was started: *Power* normally, *Exit Bigscreen* when the
+session was swapped in. `tv-mode.sh` always swaps in — that is what
+`plasma-bigscreen-swap-session` is — so on the TV it was permanently the exit, and
+nothing on the couch could reach the log out / reboot / shut down screen.
+
+`plasma-bigscreen/0004-homescreen-split-power-off-the-exit-button.patch` makes them
+two buttons: **Exit Bigscreen**, shown only when there is a desktop session to go
+back to, and **Power**, always there, raising the same greeter
+<kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>Del</kbd> does. One file,
+`ColumnActionsRow.qml`.
+
 ## The on-screen keyboard patch
 
 `plasma-keyboard` is the Qt VirtualKeyboard-based panel KWin pops up for text
@@ -141,7 +155,7 @@ TV meant fetching a keyboard.
 
 `plasma-keyboard/0001-gamepad-navigation-for-the-on-screen-keyboard.patch` reads
 game controllers straight from `/dev/input` with libevdev and drives the panel's
-own navigation mode. Against upstream `v6.7.4`, 12 files:
+own navigation mode. Against upstream `v6.7.5`, 12 files:
 
 - **`src/gamepadlistener.{h,cpp}`** (new) — finds controllers by evdev capability
   (`BTN_SOUTH` plus a stick or hat), so any pad the kernel understands works;
@@ -281,7 +295,7 @@ cd ../plasma-keyboard && makepkg -si  # the patched on-screen keyboard
 plasmashell --replace                 # reload, from inside the Bigscreen session
 ```
 
-The patched packages install as `6.7.4-1.16` (Bigscreen) and `6.7.4-1.10`
+The patched packages install as `6.7.5-1.17` (Bigscreen) and `6.7.5-1.10`
 (keyboard), and **any `pacman -Syu` that updates either silently reverts it** — the file lists are identical to stock, so nothing
 looks wrong. `pacman -Qi plasma-bigscreen plasma-keyboard` is the tell.
 

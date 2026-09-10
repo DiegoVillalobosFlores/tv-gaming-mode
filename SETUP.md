@@ -248,8 +248,8 @@ cd plasma-bigscreen
 makepkg -si
 ```
 
-This fetches `plasma-bigscreen-6.7.4.tar.xz` from `download.kde.org`, verifies all
-four checksums, applies the three patches, builds, and installs as **`6.7.4-1.16`**.
+This fetches `plasma-bigscreen-6.7.5.tar.xz` from `download.kde.org`, verifies all
+five checksums, applies the four patches, builds, and installs as **`6.7.5-1.17`**.
 
 Then reload the shell:
 
@@ -267,8 +267,9 @@ the desktop shell instead.
 pacman -Qi plasma-bigscreen | grep -E '^(Version|Description)'
 ```
 
-Patched: `6.7.4-1.16` and `(patched: running apps listed in the home overlay
-sidebar, frosted launcher tiles, tab cycling on the triggers)`. Stock: `6.7.4-1.1`
+Patched: `6.7.5-1.17` and `(patched: running apps listed in the home overlay
+sidebar, frosted launcher tiles, tab cycling on the triggers, power button split
+off the Bigscreen exit)`. Stock: `6.7.5-1.1`
 and `Plasma shell for TVs`.
 
 > **This is reverted by any `pacman -Syu` that updates `plasma-bigscreen`**, with no
@@ -281,7 +282,8 @@ and `Plasma shell for TVs`.
 > `components/bigscreenplugin/qml/AbstractDelegate.qml` and the `Icon`, `App` and
 > `Fav` delegates under
 > `containments/homescreen/package/contents/ui/launcher/delegates/`; `0003`
-> touches `inputhandler/sdlcontroller.cpp`.
+> touches `inputhandler/sdlcontroller.cpp`; `0004` touches
+> `containments/homescreen/package/contents/ui/homeoverlay/ColumnActionsRow.qml`.
 
 ---
 
@@ -294,7 +296,7 @@ cd plasma-keyboard
 makepkg -si
 ```
 
-Installs as **`6.7.4-1.10`** with the description `(patched: driven by a game
+Installs as **`6.7.5-1.10`** with the description `(patched: driven by a game
 controller)`. The keyboard is respawned by KWin on demand, so there is no shell
 reload — just restart it:
 
@@ -457,6 +459,17 @@ qdbus6 org.kde.biglauncher /BigLauncher org.kde.biglauncher.resetDisplayHomeScre
 ```
 
 `org.kde.biglauncher` is only on the bus while the Bigscreen shell is running.
+
+### Powering off
+
+Press **Home** for the overlay, then walk right along the icon strip at the bottom
+of the sidebar: Screenshot, Audio, Wi-Fi, **Exit Bigscreen**, **Power**. Power
+raises the same log out / reboot / shut down screen as
+<kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>Del</kbd>.
+
+Stock Bigscreen shows only one button there, and in a session started by
+`tv-mode.sh` it is always Exit Bigscreen — the Power button is the fourth patch
+(`plasma-bigscreen/0004-…`). On an unpatched shell, exit to the desktop first.
 
 ### Zoom
 

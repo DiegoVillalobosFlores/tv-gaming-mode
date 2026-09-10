@@ -16,12 +16,13 @@ Three things that ship together because they are used together:
    controller's bumpers while TV mode is on — all three over the shared
    `bin/tv-mode-input.sh` and each with a user unit under `systemd/`.
    `udev/93-wolverine-wake.rules` arms the controller's receiver as a wake source.
-2. **`plasma-bigscreen/`** — three patches against upstream Plasma Bigscreen `v6.7.4`:
+2. **`plasma-bigscreen/`** — four patches against upstream Plasma Bigscreen `v6.7.5`:
    one lists running apps inline in the home overlay sidebar, one restyles the
    launcher's app tiles as smoked glass, one moves the input handler's tab cycling
-   off the bumpers so `tv-mode-zoom.sh` can have them. Plus a PKGBUILD that applies
-   all three.
-3. **`plasma-keyboard/`** — a patch against upstream `plasma-keyboard` `v6.7.4` that
+   off the bumpers so `tv-mode-zoom.sh` can have them, and one splits the home
+   overlay's power button off the Exit Bigscreen button so a swapped-in session can
+   still reach the logout greeter. Plus a PKGBUILD that applies all four.
+3. **`plasma-keyboard/`** — a patch against upstream `plasma-keyboard` `v6.7.5` that
    lets a game controller drive the on-screen keyboard, plus a PKGBUILD.
 
 There is no build system, no test suite and no CI. The scripts are POSIX `sh`
@@ -288,12 +289,13 @@ resource, and the shared delegates into the `org.kde.bigscreen` QML module. Edit
 QML under `/usr/lib/qt6/qml/` or in a Plasma package directory has no effect — the
 shell loads the baked-in copy. Every change means a rebuild.
 
-The three patches are disjoint — `0001` is the home overlay, `0002` the launcher,
-`0003` the input handler — so regenerate them one at a time from a clean checkout
-rather than diffing a tree that has them all applied:
+The four patches are disjoint — `0001` is the home overlay sidebar column, `0002`
+the launcher, `0003` the input handler, `0004` the home overlay's actions row — so
+regenerate them one at a time from a clean checkout rather than diffing a tree that
+has them all applied:
 
 ```sh
-git clone --depth 1 -b v6.7.4 https://invent.kde.org/plasma/plasma-bigscreen.git
+git clone --depth 1 -b v6.7.5 https://invent.kde.org/plasma/plasma-bigscreen.git
 # edit under containments/homescreen/package/contents/ui/homeoverlay/
 git diff > plasma-bigscreen/0001-homescreen-list-running-apps-in-home-overlay.patch
 git checkout -- .
@@ -302,7 +304,10 @@ git diff > plasma-bigscreen/0002-homescreen-frost-the-launcher-app-tiles.patch
 git checkout -- .
 # edit inputhandler/sdlcontroller.cpp
 git diff > plasma-bigscreen/0003-inputhandler-move-tab-cycling-off-the-bumpers.patch
-# update all three sha256s in the PKGBUILD, then:
+git checkout -- .
+# edit homeoverlay/ColumnActionsRow.qml
+git diff > plasma-bigscreen/0004-homescreen-split-power-off-the-exit-button.patch
+# update all four sha256s in the PKGBUILD, then:
 cd plasma-bigscreen && makepkg -si
 ```
 
@@ -414,9 +419,9 @@ and more contrast for the label, lower it for more wallpaper.
 After a rebuild, verification is:
 
 ```sh
-pacman -Qi plasma-bigscreen | grep -E '^(Version|Description)'   # 6.7.4-1.16, "(patched: ...)"
+pacman -Qi plasma-bigscreen | grep -E '^(Version|Description)'   # 6.7.5-1.17, "(patched: ...)"
 plasmashell --replace > /tmp/shell.log 2>&1 &                    # from the Bigscreen session
-grep -iE 'MainColumn|TasksView|HomeOverlayWindow|AbstractDelegate|IconDelegate|\.qml:[0-9]+' /tmp/shell.log
+grep -iE 'MainColumn|TasksView|HomeOverlayWindow|ColumnActionsRow|AbstractDelegate|IconDelegate|\.qml:[0-9]+' /tmp/shell.log
 qdbus6 | grep -i biglauncher                                     # Bigscreen shell is up
 ```
 
@@ -454,6 +459,36 @@ they now give `Shift+Tab`/`Tab`.
   `plasma-keyboard` takes an exclusive grab while it is shown, so the input handler
   sees no trigger events at all in that window. The two bindings never overlap.
 
+### `0004`, the power button
+
+`ColumnActionsRow.qml` is the icon strip along the bottom of the home overlay's
+sidebar — Screenshot, Audio, Wi-Fi, and upstream's one last button. That last
+button is `Bigscreen.Global.launchReason === "swap" ? exit : power`, and **this
+session is always `swap`**: `tv-mode.sh` enters Bigscreen through
+`plasma-bigscreen-swap-session`, which exports `PLASMA_BIGSCREEN_LAUNCH_REASON=swap`
+for the life of the shell. So on the TV that button was only ever *Exit
+Bigscreen*, and there was no way to reach the logout greeter from the couch at
+all. The patch splits it in two: an Exit button that is `visible` only under
+`swap`, and a Power button that is unconditional and always calls
+`promptLogoutGreeter("promptAll")`.
+
+- **`promptAll`, not a specific action.** `Global::promptLogoutGreeter` passes its
+  argument through as the *method name* on `org.kde.LogoutPrompt`, and `promptAll`
+  is the one that raises the full greeter — the same screen
+  <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>Del</kbd> gives. `promptLogout`,
+  `promptShutDown` and `promptReboot` exist but each commit to one action.
+- **The Exit button is hidden, not disabled, off `swap`.** Qt's `KeyNavigation`
+  skips items that are not `visible`, so the row's right-chain (`wifiButton` ->
+  `exitButton` -> `shutdownButton`) stays walkable in a session launched as the
+  default shell, where Exit would do nothing meaningful. Do not swap `visible` for
+  `enabled` — `enabled: false` is also skipped, but it leaves a dead icon on the
+  strip.
+- **The header's `indicators/Shutdown.qml` was deliberately left alone.** It has
+  the identical `launchReason` conditional and the identical blind spot, but it is
+  a different surface — the homescreen's own top-right strip, not the overlay you
+  get from the controller's Home button over a running game. Patching it too would
+  put two power buttons on the homescreen.
+
 ## Working on the keyboard patch
 
 Upstream already had keyboard navigation of the on-screen keys, driven only by a
@@ -462,9 +497,9 @@ physical keyboard's arrow keys through `InputListenerItem` into
 same path** rather than building a parallel one. Keep it that way.
 
 ```sh
-git clone -b v6.7.4 https://invent.kde.org/plasma/plasma-keyboard.git
+git clone -b v6.7.5 https://invent.kde.org/plasma/plasma-keyboard.git
 # edit, then:
-git diff v6.7.4 -- . ':(exclude)build' > .../plasma-keyboard/0001-....patch
+git diff v6.7.5 -- . ':(exclude)build' > .../plasma-keyboard/0001-....patch
 # update the patch sha256 in the PKGBUILD, then:
 cd plasma-keyboard && makepkg -Cf && sudo pacman -U plasma-keyboard-*.pkg.tar.zst
 pkill -x plasma-keyboard     # KWin respawns it on demand
@@ -559,6 +594,6 @@ second time to close it, and confirm with a screenshot.
 Both patched packages install a **byte-identical file list** to stock
 `plasma-bigscreen` / `plasma-keyboard`. Any `pacman -Syu` that updates either reverts
 the patch with no warning and nothing looks broken. The only tell is `pacman -Qi`:
-pkgrel `1.16` (Bigscreen) / `1.10` (keyboard) and a `(patched: ...)` description. If a
+pkgrel `1.17` (Bigscreen) / `1.10` (keyboard) and a `(patched: ...)` description. If a
 user reports the shortcuts "just disappeared", the tiles "went solid again" or the
 controller "stopped typing", check that first.
